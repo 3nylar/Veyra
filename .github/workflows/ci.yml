@@ -1,0 +1,138 @@
+# CI (§45)
+#
+# A failed security test MUST fail the build. There is no `continue-on-error`
+# on any job below, and no step is marked advisory.
+#
+# Note what is NOT here: a deploy step. Nothing in this repository is fit to
+# deploy against real funds, and a pipeline that could do so would be an
+# invitation to a mistake.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Typecheck, test, audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # `npm ci` installs exactly the lockfile. `npm install` may silently
+      # resolve a different version, which for a wallet's cryptographic
+      # dependencies is a supply-chain risk, not a convenience.
+      - name: Install (locked)
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Cryptography tests
+        run: npx vitest run tests/cryptography/
+
+      - name: Security tests
+        run: npx vitest run tests/security/
+
+      - name: Fuzz tests
+        run: npx vitest run tests/fuzz/
+
+      - name: API security tests
+        run: npm run test:api
+
+      - name: Unit tests
+        run: npx vitest run tests/unit/
+
+      # Runs separately so the summary line reports the true total, including
+      # how many regtest tests were SKIPPED. A green build with consensus
+      # validation skipped means less than one with it run.
+      - name: Full suite
+        run: npm test
+
+      - name: Dependency audit
+        run: npm audit --audit-level=moderate
+
+  secrets:
+    name: Secret scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history: a secret removed in a later commit is still a secret
+
+      - name: Scan for committed secrets
+        run: |
+          set -e
+          echo "Checking for committed .env files..."
+          if git ls-files | grep -E '^\.env$|^\.env\.[^e]'; then
+            echo "::error::A .env file is committed"
+            exit 1
+          fi
+
+          echo "Checking for seed or mnemonic files..."
+          if git ls-files | grep -E '\.(seed|mnemonic)$|wallet-backup'; then
+            echo "::error::A seed or mnemonic file is committed"
+            exit 1
+          fi
+
+          # A 12- or 24-word BIP-39 phrase in source. Excludes the test files
+          # that legitimately contain the published all-zeros test vector.
+          echo "Checking for mnemonic phrases outside test fixtures..."
+          if grep -rniE '(abandon[[:space:]]+){11}' \
+               --include='*.ts' --include='*.js' --include='*.json' \
+               --exclude-dir=node_modules . \
+             | grep -vE '(tests/|api/tests/|scripts/|docs/)'; then
+            echo "::error::A mnemonic phrase appears outside test fixtures"
+            exit 1
+          fi
+
+          # 64 hex characters assigned to something key-shaped.
+          echo "Checking for hard-coded private keys..."
+          if grep -rniE '(private_?key|secret|seed)[[:space:]]*[:=][[:space:]]*["'"'"'][0-9a-f]{64}["'"'"']' \
+               --include='*.ts' --include='*.js' \
+               --exclude-dir=node_modules . \
+             | grep -vE '(tests/|api/tests/)'; then
+            echo "::error::A hard-coded 64-hex key appears outside test fixtures"
+            exit 1
+          fi
+
+          echo "No committed secrets found."
+
+  guards:
+    name: Structural security guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      # These two guards cannot be expressed as behavioural tests: a
+      # weak-entropy wallet works perfectly, and a timing-unsafe
+      # implementation produces correct output. Only a source scan catches
+      # them, and CI running them on Linux complements a developer running
+      # them on Windows -- see docs/ATTACKS.md VEY-001.
+      - name: No predictable randomness in core/
+        run: npx vitest run tests/cryptography/entropy.test.ts
+
+      - name: Reference implementations are isolated
+        run: npx vitest run tests/cryptography/reference-implementations.test.ts

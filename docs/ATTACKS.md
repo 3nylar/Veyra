@@ -1,0 +1,465 @@
+# Veyra — Attack and Defect Log
+
+> **§31 is mandatory.** Every vulnerability, and every defect that weakened a
+> defence, is recorded here with its root cause, fix, regression test, and
+> lesson. Nothing is silently patched.
+>
+> **These are real findings from this codebase**, not illustrative examples.
+> Each was discovered during development, most by a test failing. They are
+> recorded whether or not they were exploitable, because a defect that
+> *silently disabled a security control* is more dangerous than one that
+> crashed loudly — it produces a green tick that nobody re-examines.
+
+---
+
+## Severity scale
+
+Severity is **impact**, not category. An earlier version of this table defined
+the levels by the kind of finding ("a test that checked nothing"), which
+described one entry rather than measuring any of them — and consequently
+mislabelled VEY-002, a self-inflicted denial of service, as though it were a
+test defect.
+
+| Level | Meaning |
+| --- | --- |
+| **Critical** | Funds could be lost or stolen |
+| **High** | A security control was disabled, bypassed, or silently ineffective |
+| **Medium** | Funds or the wallet could become unavailable; or a control was verified only in appearance |
+| **Low** | Correctness, robustness, or process defect with no security or availability impact |
+
+A defect that *silently* disables a control ranks above one that crashes: a
+crash gets fixed, a green tick gets trusted.
+
+---
+
+## VEY-001 — Security guard silently stopped guarding on Windows
+
+**Severity:** High · **Found:** increment 1, by a user running the suite on Windows
+
+### Attack
+Not an external attack. The failure mode: a developer on Windows would see a
+fully green suite while two security guards checked nothing at all.
+
+### Failure
+`tests/cryptography/entropy.test.ts` crashed with
+`ENOENT: scandir 'C:\C:\Veyra\core'`. Investigating that crash revealed a
+second, worse defect in `reference-implementations.test.ts` that did **not**
+crash.
+
+### Root cause
+Two distinct path bugs:
+
+1. `new URL("../../core", import.meta.url).pathname` returns `/C:/Veyra/core`
+   on Windows — leading slash, forward slashes. `join()` then produced
+   `C:\C:\Veyra\core`. On Linux `.pathname` happens to be correct, so my
+   container never saw it.
+
+2. The isolation guard filtered files with
+   `relative(coreRoot, f).startsWith("crypto/reference")`. Windows `relative()`
+   returns `crypto\reference\sha256.ts` — **backslashes** — so the comparison
+   was always `false`.
+
+Bug 2 is the serious one. It did not crash. It made three tests iterate an
+empty array and pass vacuously, disabling the §4 guarantee that the
+timing-unsafe reference implementations never become the production security
+boundary.
+
+### Fix
+`fileURLToPath()` instead of `.pathname`, and a `relativePosix()` helper that
+normalises separators at the boundary.
+
+### Regression test
+Two layers, because fixing only the separator would leave the same trap for the
+next platform:
+
+- `relativePosix()` normalises separators.
+- A **backstop** test asserts the reference-file filter matches *exactly* the
+  two expected files. Asserted exactly rather than `> 0`, so deleting a file
+  also trips it.
+
+### Lesson
+**A guard that can silently stop guarding needs its own assertion that it is
+still guarding.** Any test whose body iterates a filtered collection should
+assert the collection is non-empty — otherwise a filter bug converts the test
+into a no-op that reports success.
+
+Also: a second test platform found in one increment what a single platform
+structurally could not.
+
+---
+
+## VEY-002 — Scan depth and ownership check disagreed about the wallet's own addresses
+
+**Severity:** Medium (availability — the wallet refused its own funds) ·
+**Found:** increment 5, by a test failing
+
+### Attack
+Self-inflicted denial of service. A wallet synced with a wider gap limit would
+discover its own funds and then refuse them.
+
+### Failure
+`Wallet.sync(chain, { gapLimit: 40 })` discovered a UTXO at address index 30,
+then `setUtxos` threw *"UTXO is for an address this wallet does not control"* —
+about its own address.
+
+### Root cause
+`knownAddresses()` always derived exactly `GAP_LIMIT` (20) addresses, while
+`sync()` accepted a caller-supplied depth. Two sources of truth about the same
+question, allowed to disagree.
+
+### Fix
+One source of truth that grows: `knownAddresses(depth)` extends the cache and
+never shrinks. `sync()` widens it to the scan depth before validating, and
+widens it further whenever the scan runs past the limit on a used address.
+
+### Regression test
+`chain-sync.test.ts` — *"STOPS after the gap limit"* funds address 30, asserts
+a default scan finds nothing, then asserts a `gapLimit: 40` scan finds it.
+
+### Lesson
+**Two pieces of code answering the same question will eventually disagree.**
+The bug was not in either function; it was in there being two.
+
+---
+
+## VEY-003 — The fix for VEY-002 was quadratic
+
+**Severity:** Low · **Found:** immediately after VEY-002, by the suite timing out
+
+### Failure
+The suite went from seconds to a 200-second timeout.
+
+### Root cause
+The first fix called `knownAddresses(index + 1)` on every discovered address,
+and that function re-derived the **entire** set each time. Thirty discovered
+addresses meant roughly 1,800 EC scalar multiplications.
+
+### Fix
+Derive only the new range, incrementally.
+
+### Lesson
+**A correctness fix can create a denial of service.** The fix needed the same
+scrutiny as the bug. Worth noting the earlier instance of the same shape:
+`setUtxos` re-derived 40 addresses on every call — invisible in normal use, but
+seven seconds inside a property test. My first instinct there was to make the
+*test* cheaper, which would have hidden a real inefficiency in production code.
+
+---
+
+## VEY-004 — Prototype-pollution test attacked nothing
+
+**Severity:** Medium (a control verified only in appearance) ·
+**Found:** increment 7, by the test failing for the wrong reason
+
+### Failure
+The test expected a 4xx and received a 200 — because the request it sent was
+perfectly valid.
+
+### Root cause
+```js
+JSON.stringify({ __proto__: { polluted: true } })   // → "{}"
+```
+
+In an **object literal**, `__proto__:` sets the prototype rather than creating
+an own property. So the hostile field was dropped before the request was sent,
+leaving a valid `{to, amount, feeRate}` body — which the API correctly accepted
+with a 200. The test had never sent a pollution attempt at all.
+
+(An earlier draft of this entry claimed the test "had been passing on an
+earlier run for unrelated reasons". That was not observed — it failed on its
+first execution. The claim was plausible reconstruction rather than record, and
+is corrected here for the same reason VEY-005 exists.)
+
+`JSON.parse`, by contrast, *does* create `__proto__` as an own property — so
+the real attack shape is raw JSON text, which is exactly what an attacker
+sends.
+
+### Fix
+Send the payload as a raw string. Added a second test for a nested variant.
+
+### Regression test
+`api-security.test.ts` — *"rejects prototype-pollution attempts"* and *"does
+not pollute the prototype even via a deeply nested payload"*. Both assert
+`Object.prototype` is unpolluted afterwards.
+
+The defence itself was already correct: the unknown-key allowlist rejects
+`__proto__` like any other unexpected field. The defect was entirely in the
+test that claimed to verify it.
+
+### Lesson
+**A security test that passes without exercising the attack is worse than no
+test**, because it is counted as coverage. When writing a test for a specific
+attack, verify the payload actually reaches the code under test — here, by
+confirming the serialised body contains the hostile field.
+
+---
+
+## VEY-005 — Fabricated data in a test fixture
+
+**Severity:** Medium (verification only in appearance) ·
+**Found:** increment 2, during self-review
+
+### Failure
+A BIP-39 vector table contained a seed value I could not source. I had filtered
+that row out of the seed assertion and left the placeholder bytes in the file.
+
+### Root cause
+Wanting the table to look complete. The filtered assertion meant the value was
+unused — but it sat in a fixture looking authoritative, and a later maintainer
+could reasonably have re-enabled it.
+
+### Fix
+Split into `ENTROPY_VECTORS` and `SEED_VECTORS`. Every asserted value now
+traces to the published specification. The unsourced vector appears only where
+its entropy/mnemonic mapping is verifiable.
+
+### Lesson
+**A fabricated vector is worse than a missing one.** It looks like
+verification while providing none. Five independently published seeds is ample;
+a sixth invented one subtracts credibility from the other five.
+
+---
+
+## VEY-006 — "Off-curve" was assumed rather than computed
+
+**Severity:** Low · **Found:** increment 1, by the test failing
+
+### Failure
+A test asserting that an off-curve point is rejected used `x = 1`, on the
+assumption that a small `x` obviously would not lie on the curve. It does:
+`y² = 8` has a square root mod `p`.
+
+### Root cause
+Intuition about a finite field. Roughly **half** of all `x` values lie on the
+curve; smallness is unrelated.
+
+### Fix
+`x = 5` (`y² = 132`, a quadratic non-residue by Euler's criterion), computed
+rather than guessed. Added the complementary test that `x = 1` **is** accepted.
+
+### Lesson
+**A validator test built on an assumption can pass while checking nothing.**
+Had the point been on-curve *and* the validator broken, the test would have
+gone green. Test inputs for negative cases must be computed, not assumed.
+
+---
+
+## VEY-007 — Packaging step destroyed the working tree
+
+**Severity:** Low (process) · **Found:** increment 5 and again in increment 6
+
+### Failure
+Test runs failed with `Cannot find package 'vitest'` twice, in separate
+increments.
+
+### Root cause
+The packaging step deleted `node_modules` in place before copying. I reinstalled
+each time rather than fixing the cause — treating a recurring symptom as an
+incident.
+
+### Fix
+A tar-based script that *excludes* rather than deletes, so the source tree is
+never modified. Verified afterwards that `node_modules` survives packaging.
+
+### Lesson
+**A recurring failure is a defect, not an incident.** Fixing it the second time
+took less effort than the two reinstalls, and the first reinstall had already
+signalled the problem.
+
+---
+
+## VEY-008 — API unreachable from any browser (missing CORS preflight)
+
+**Severity:** Low (availability) · **Found:** increment 9, by a user opening the UI
+
+### Attack
+Not an attack. A complete availability failure that every test missed.
+
+### Failure
+The interface loaded, rendered correctly, and showed *"Cannot reach the Veyra
+API. Check that it is running."* — while the API was running and healthy.
+
+### Root cause
+A browser sends a `OPTIONS` **preflight** before any cross-origin request
+carrying an `Authorization` header. The API had no `OPTIONS` route, so it
+returned 404, and the real request was never sent.
+
+The reason 55 API tests missed it is the instructive part: **they all called
+`fetch` from Node, which does not enforce CORS.** Every request in the suite
+succeeded because Node has no same-origin policy to violate. The test
+environment differed from the real one in precisely the dimension under test.
+
+### Fix
+Handle `OPTIONS` before the auth check — the browser strips `Authorization`
+from a preflight by design, so requiring it there means every browser request
+fails. CORS headers are emitted for an explicit **allowlist** of origins, never
+`*`.
+
+Design points worth stating:
+
+- **No wildcard.** The token is the real defence, but `*` would let any site
+  probe this API from a victim's browser and read the replies, turning a stolen
+  token into a usable one from anywhere.
+- **No `Allow-Credentials`.** Auth is a bearer token set by our own client,
+  never a cookie. Permitting credentialed requests would grant reach without
+  granting any capability we need.
+- **`Vary: Origin`** on every response, so a shared cache cannot serve an
+  allowed origin's response to a disallowed one.
+- **Preflights are rate-limited** and return an identical 204 for every path,
+  so they cannot become a free channel or a route-enumeration oracle.
+
+### Regression test
+Eight tests in `api-security.test.ts` under *"CORS (regression: VEY-008)"*,
+including that an unlisted origin gets no CORS headers, that the wildcard is
+never used, and that a preflight does not exempt the following request from
+authentication.
+
+### Lesson
+**A test environment that differs from the real one in the dimension under
+test proves nothing about that dimension.** Node's `fetch` and a browser's
+`fetch` are not the same client, and the difference is exactly the security
+model this feature depends on.
+
+The general form: when a component's behaviour is defined by a *policy the
+runtime enforces* — CORS, CSP, cookie scoping, sandboxing — testing it in a
+runtime without that policy tests something else. This is the same shape as
+VEY-001, where a Linux-only test run could not see a Windows path bug.
+
+---
+
+## VEY-009 — A test measured the machine instead of the code
+
+**Severity:** Low (test quality) · **Found:** increment 9, by a user running the
+suite on their own hardware
+
+### Failure
+`AssertionError: expected 14122 to be less than 10000`
+
+The bounded-scan test failed on a slower machine. **The bound it was testing
+worked perfectly** — the scan terminated at exactly 2000 addresses, as
+designed. What failed was the assertion.
+
+### Root cause
+Two separate problems, and only one of them was the test.
+
+**The test asserted the wrong thing.** It measured elapsed wall-clock time,
+which is a property of the hardware, the system load, and the runtime — not of
+the code under test. A machine roughly 40% slower fails it while the security
+property holds completely. In CI, under parallel load, or on any modest laptop,
+it would flake.
+
+**The code was also genuinely slow.** 2000 derivations took 14 seconds because
+`Bip84Account.deriveAddress` recomputed two EC scalar multiplications and a
+HASH160 every time, including for addresses it had already derived moments
+earlier during the same scan.
+
+### Fix
+Both halves:
+
+1. **The test now asserts the bound**, exactly: `expect(calls).toBe(2000)`.
+   That is deterministic, machine-independent, and is the actual security
+   property. Liveness is still covered — if the ceiling were removed the test
+   would never return and vitest's own timeout would fail it.
+
+2. **`Bip84Account` memoises derived addresses**, bounded at 4000 entries so
+   the optimisation cannot itself become a memory-exhaustion vector. Sound
+   because derivation is a pure function of the account node, chain, and index.
+   The cache holds public data only.
+
+Result: that test went from 14.1s to 1.45s, and the file from 26.9s to 3.2s.
+
+### Sweep
+Five further wall-clock assertions were found in the fuzz and coin-selection
+suites. These guard against *catastrophic* blowup — unbounded allocation,
+exponential search — where the failure mode is exhausting memory or never
+returning, not being marginally slower. They were kept but their thresholds
+raised substantially, with a comment stating they are catastrophe detectors
+rather than performance targets.
+
+### Regression test
+`chain-sync.test.ts` — *"bounds the scan…"* asserts the exact call count, and
+*"re-scanning is fast, because derivation is cached"* asserts object identity
+from the memo rather than timing anything.
+
+### Lesson
+**A timing assertion tests the machine unless the failure mode it guards is
+catastrophic.** Distinguish the two cases: guarding against "unbounded" can use
+a loose ceiling, because the difference between bounded and unbounded is not
+40%. Guarding against "slow" with a wall-clock number encodes the author's
+hardware into the test suite.
+
+Where a deterministic property exists — a call count, a cache hit, an
+allocation bound — assert that instead. The property is what you meant; the
+duration was only ever a proxy for it.
+
+Worth noting this is the third finding from the same source: running the suite
+on hardware and an operating system unlike mine (VEY-001, VEY-008, VEY-009). A
+single machine cannot find bugs whose cause is that there is only one machine.
+
+---
+
+## VEY-010 — Setup guide pointed at the wrong config directory on Windows
+
+**Severity:** Low (documentation) · **Found:** increment 6 setup, by a user
+following REGTEST.md
+
+### Failure
+`ChainError: RPC authentication failed — check the username and password`
+
+The node was running and answering — a 401 means it responded — but with
+credentials that did not match. The username and password were correct in both
+places.
+
+### Root cause
+`docs/REGTEST.md` told the user to write `bitcoin.conf` to
+`%APPDATA%\Bitcoin` (i.e. `AppData\Roaming`). Recent Bitcoin Core builds on
+Windows default their data directory to `%LOCALAPPDATA%\Bitcoin`
+(`AppData\Local`). The config file was written to a directory the node never
+read, so it started with no `rpcuser` at all and rejected every request.
+
+The installer's own welcome screen displayed the correct path —
+`C:\Users\<user>\AppData\Local\Bitcoin` — which is how it was diagnosed.
+
+### Fix
+`docs/REGTEST.md` now writes the config to **both** locations, and adds a
+verification step that prints the file back and confirms the node reports
+`"chain": "regtest"` before the tests are run.
+
+### Lesson
+**A 401 from a service you configured usually means the configuration was
+never read.** The instinct is to re-check the credentials; the more productive
+check is whether the file is where the program looks.
+
+More generally: setup instructions are code that runs on someone else's
+machine, and they inherit the same portability problems as code. This is the
+fourth Windows-specific finding in the log (VEY-001, VEY-008, VEY-009,
+VEY-010), and the second where a path differed from the author's platform.
+
+---
+
+## Findings that were NOT defects
+
+Recorded because their absence is itself informative.
+
+### The isolation and entropy guards work
+Once VEY-001 was fixed, both source-tree guards have held. No production module
+imports `core/crypto/reference/`, and `Math.random()` appears nowhere in
+`core/` — including in `coinSelection.ts`, where a shuffle would have been the
+natural place to reach for it. The CSPRNG is used there instead, specifically
+so no exception exists to spread.
+
+### BIP-143 matched on the first attempt
+The sighash implementation reproduced the published digest `c37af311…` without
+iteration. Given the number of fields, orderings, and endianness choices
+involved, this was more luck than it should have been, and is exactly why the
+vector was run before anything was built on top of it.
+
+### The value-conservation property has never failed
+Across roughly 6,000 randomised coin-selection scenarios and 200 randomised
+sends, `inputs = amount + fee + change` has held without exception.
+
+---
+
+## Reporting a vulnerability
+
+See [SECURITY.md](../SECURITY.md).
