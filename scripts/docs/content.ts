@@ -98,9 +98,15 @@ export const PAGES: Page[] = [
 </p>
 
 ${note("danger", `<strong>Read this before anything else.</strong> This process holds private
-keys in memory. It speaks plain HTTP, has never been audited, and has never
-handled real funds. No transaction it has produced has yet been accepted by
-Bitcoin Core. It exists to be inspected and attacked, not to secure savings.`)}
+keys in memory. It speaks plain HTTP, has never been independently audited, and
+has never handled real funds. It exists to be inspected and attacked, not to
+secure savings.`)}
+
+${note("teal", `<strong>Consensus-verified.</strong> On 2026-08-20 Bitcoin Core
+accepted a transaction Veyra built and signed, on regtest, and computed an
+identical txid — so the serialisation is byte-exact and the signing path
+satisfies real consensus rules, not just a reading of them. Reproduce with
+<code>npm run test:regtest</code>.`)}
 
 <h2 id="the-rule">The one rule that shapes this API</h2>
 <p>

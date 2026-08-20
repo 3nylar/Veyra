@@ -123,7 +123,7 @@ npm run demo:wallet # full send flow with fee review and spending guards
 npm run demo:sync   # chain scan, broadcast, and a hostile-server rejection
 
 npm run test:unit    # everything that needs no node
-npm run test:api     # 55 API attacks (§21)
+npm run test:api     # 63 API attacks (§21)
 npm run test:regtest # consensus validation against Bitcoin Core (needs a node)
 
 npm run api          # start the HTTP API — see api/README.md
@@ -133,11 +133,10 @@ npm run app          # start the interface — see app/README.md
                      #   API docs: http://127.0.0.1:5173/docs/
 ```
 
-Current suite: **574 passing, 10 skipped, across 20 files.**
-
-The 10 skipped are the regtest integration tests. They require a running
-Bitcoin Core node and are **the most important tests in the repository** —
-see [docs/REGTEST.md](docs/REGTEST.md).
+Current suite: **593 tests across 20 files** — 583 that need no node, plus 10
+regtest integration tests that require a running Bitcoin Core node and are
+**the most important tests in the repository**. See
+[docs/REGTEST.md](docs/REGTEST.md).
 
 `npm run demo` prints the whole pipeline and produces real testnet addresses:
 
@@ -146,6 +145,8 @@ see [docs/REGTEST.md](docs/REGTEST.md).
     m/84'/1'/0'/0/0  tb1qg0yw6s6cpvwjf7ulqmzcurtywmuaznusdwx06v
     m/84'/1'/0'/0/1  tb1qfqwvqyw6np7706pjlp4eqk9eejetqf72a36tm3
 ```
+
+**Live documentation:** <https://veyra-apidocs.vercel.app>
 
 ### ✅ Consensus verification
 
@@ -252,8 +253,9 @@ README will not describe a challenge that has not been deployed.
 
 Documentation is written alongside the code it documents, never ahead of it.
 `docs/ATTACKS.md` is worth reading first if you want to judge the project's
-honesty: it records seven real defects, including two where a security guard
-silently stopped guarding.
+honesty: it records ten real defects, including two where a security guard
+silently stopped guarding, and one where a test measured the machine rather
+than the code.
 
 ---
 

@@ -22,6 +22,28 @@ export interface Page {
   readonly body: string;
 }
 
+/**
+ * Repository URL for the top-bar link.
+ *
+ * Overridable via VEYRA_REPO_URL so a fork does not have to edit source to
+ * point the link at itself.
+ */
+export const REPO_URL = process.env.VEYRA_REPO_URL ?? "https://github.com/3nylar/Veyra";
+
+/**
+ * Internal link target.
+ *
+ * Extensionless by default: Vercel's `cleanUrls` and GitHub Pages both serve
+ * `/docs/introduction`, and linking to `.html` makes every click bounce
+ * through a redirect with a visible address-bar flicker.
+ *
+ * Set VEYRA_DOCS_EXT=1 when the pages will be opened directly from the
+ * filesystem, where extensionless links do not resolve.
+ */
+export function link(slug: string): string {
+  return process.env.VEYRA_DOCS_EXT === "1" ? `${slug}.html` : slug;
+}
+
 export const GROUPS = [
   "Get started",
   "Core concepts",
@@ -42,6 +64,12 @@ function extractHeadings(body: string): Array<{ id: string; label: string }> {
     });
   }
   return out;
+}
+
+/** Rewrite `href="slug.html"` in body content to match the link style. */
+function rewriteInternalLinks(body: string): string {
+  if (process.env.VEYRA_DOCS_EXT === "1") return body;
+  return body.replace(/href="([a-z0-9-]+)\.html"/g, 'href="$1"');
 }
 
 /** Anchor links on every H2, so a section can be linked to directly. */
@@ -68,7 +96,7 @@ export function renderPage(page: Page, all: readonly Page[]): string {
         ${pages
           .map(
             (p) =>
-              `<a href="${p.slug}.html"${p.slug === page.slug ? ' class="current" aria-current="page"' : ""}>${p.title}</a>`,
+              `<a href="${link(p.slug)}"${p.slug === page.slug ? ' class="current" aria-current="page"' : ""}>${p.title}</a>`,
           )
           .join("")}
       </div>`;
@@ -84,8 +112,8 @@ export function renderPage(page: Page, all: readonly Page[]): string {
 
   const pager = `
     <nav class="pager">
-      ${previous ? `<a class="pager-link" href="${previous.slug}.html"><span>Previous</span><strong>${previous.title}</strong></a>` : "<span></span>"}
-      ${next ? `<a class="pager-link next" href="${next.slug}.html"><span>Next</span><strong>${next.title}</strong></a>` : "<span></span>"}
+      ${previous ? `<a class="pager-link" href="${link(previous.slug)}"><span>Previous</span><strong>${previous.title}</strong></a>` : "<span></span>"}
+      ${next ? `<a class="pager-link next" href="${link(next.slug)}"><span>Next</span><strong>${next.title}</strong></a>` : "<span></span>"}
     </nav>`;
 
   return `<!doctype html>
@@ -103,13 +131,13 @@ export function renderPage(page: Page, all: readonly Page[]): string {
   <body>
     <header class="topbar">
       <button class="menu-toggle" aria-label="Menu" aria-expanded="false">☰</button>
-      <a class="brand" href="introduction.html">
+      <a class="brand" href="${link("introduction")}">
         <span class="brand-mark">Veyra</span><span class="brand-kind">Docs</span>
       </a>
       <nav class="topnav">
-        <a href="api-reference.html">API reference</a>
-        <a href="changelog.html">Changelog</a>
-        <a href="https://github.com" rel="noopener">GitHub</a>
+        <a href="${link("api-reference")}">API reference</a>
+        <a href="${link("changelog")}">Changelog</a>
+        <a href="${REPO_URL}" rel="noopener noreferrer" target="_blank">GitHub</a>
         <button class="theme-toggle" aria-label="Toggle theme">◐</button>
       </nav>
     </header>
@@ -121,7 +149,7 @@ export function renderPage(page: Page, all: readonly Page[]): string {
         <p class="eyebrow">${page.group}</p>
         <h1>${page.title}</h1>
         <p class="lede">${page.lede}</p>
-        ${addAnchors(page.body)}
+        ${addAnchors(rewriteInternalLinks(page.body))}
         ${pager}
       </main>
 
