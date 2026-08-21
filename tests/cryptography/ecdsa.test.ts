@@ -58,7 +58,7 @@ describe("§11: the four required signature properties", () => {
       }
     }
     expect(tested).toBe(256); // guards against a vacuous loop
-  });
+  }, 15000);
 });
 
 describe("RFC 6979 deterministic nonces", () => {

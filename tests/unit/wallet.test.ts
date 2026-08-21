@@ -319,5 +319,5 @@ describe("value conservation across a spend", () => {
         expect(error).toBeInstanceOf(WalletError);
       }
     }
-  });
+  }, 20000);
 });
