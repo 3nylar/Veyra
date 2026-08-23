@@ -16,10 +16,9 @@ a library.
 > serialisation is byte-exact and the signing path satisfies real consensus
 > rules, not just my reading of them. Run `npm run test:regtest` to reproduce.
 >
-> Still missing: live fee estimation from mempool data, transaction history,
-> and Lightning. The Esplora client has **not** been tested against a live
-> server. Nothing here has handled real funds. There is no challenge
-> deployment.
+> Still missing: Lightning. The Esplora client
+> has **not** been tested against a live server. Nothing here has handled real
+> funds. There is no challenge deployment.
 
 ---
 
@@ -48,6 +47,10 @@ a library.
 | Regtest integration suite | ✅ Passing | `tests/integration/` | [REGTEST.md](docs/REGTEST.md) |
 | HTTP API | ✅ | `api/src/` | [api/README.md](api/README.md) |
 | Interface | ✅ | `app/src/` | [app/README.md](app/README.md) |
+| Transaction history | ✅ | `core/chain/` | [api/README.md](api/README.md) |
+| Live fee estimation | ✅ | `core/chain/` | [api/README.md](api/README.md) |
+| RBF fee bumping (BIP-125) | ✅ | `core/wallet/wallet.ts` | [api/README.md](api/README.md) |
+| Taproot (BIP-86 / BIP-341) | ✅ | `core/addresses/taproot.ts` | [§19](docs/CRYPTOGRAPHY.md) |
 | Lightning | ⬜ Not started | — | — |
 
 ---
@@ -133,7 +136,7 @@ npm run app          # start the interface — see app/README.md
                      #   API docs: http://127.0.0.1:5173/docs/
 ```
 
-Current suite: **593 tests across 20 files** — 583 that need no node, plus 10
+Current suite: **690 tests across 23 files** — 676 that need no node, plus 14
 regtest integration tests that require a running Bitcoin Core node and are
 **the most important tests in the repository**. See
 [docs/REGTEST.md](docs/REGTEST.md).
@@ -180,6 +183,7 @@ tested only against itself:
 | BIP-84 | Published mainnet addresses |
 | BIP-173 / BIP-350 | Valid **and invalid** Bech32/Bech32m vectors |
 | BIP-143 | Official native-P2WPKH sighash vector (`c37af311…`) |
+| BIP-86 | Published Taproot addresses — all three vectors |
 
 ---
 
@@ -253,7 +257,7 @@ README will not describe a challenge that has not been deployed.
 
 Documentation is written alongside the code it documents, never ahead of it.
 `docs/ATTACKS.md` is worth reading first if you want to judge the project's
-honesty: it records ten real defects, including two where a security guard
+honesty: it records twelve real defects, including two where a security guard
 silently stopped guarding, and one where a test measured the machine rather
 than the code.
 

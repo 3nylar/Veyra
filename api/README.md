@@ -85,6 +85,10 @@ All require `Authorization: Bearer <token>` except `/health`.
 | GET | `/wallet/balance` | Total, spendable, unconfirmed, unavailable |
 | GET | `/wallet/utxos` | Unspent outputs (no derivation paths) |
 | GET | `/wallet/security` | Verifiable security state and warnings |
+| GET | `/wallet/fees` | Fee estimates, with `isLive` telling you whether they are real |
+| GET | `/transactions` | Transaction history with direction and net value |
+| GET | `/transactions/replaceable` | Transactions from this session that can still be fee-bumped |
+| POST | `/transactions/bump` | Replace a stuck transaction with a higher-fee version (BIP-125) |
 | POST | `/wallet/sync` | Rescan from the chain source |
 | POST | `/transactions/prepare` | Build and sign; returns a review |
 | GET | `/transactions/:id` | Re-read a pending review |

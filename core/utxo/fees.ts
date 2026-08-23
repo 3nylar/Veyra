@@ -89,6 +89,19 @@ export const FEE_RATE_PRESETS = Object.freeze({
   low: 2,
 });
 
+/**
+ * Incremental relay fee, in sat/vB.
+ *
+ * BIP-125 rule 4: a replacement transaction must pay for its own bandwidth on
+ * top of beating the original's absolute fee. The additional fee must be at
+ * least this rate times the replacement's size — otherwise a node would be
+ * relaying a second copy of the transaction for free, and an attacker could
+ * flood the network with endless one-satoshi bumps.
+ *
+ * Bitcoin Core's default `incrementalRelayFee` is 1000 sat/kvB = 1 sat/vB.
+ */
+export const INCREMENTAL_RELAY_FEE_RATE = 1;
+
 export interface SizeEstimate {
   readonly vsize: number;
   readonly weight: number;

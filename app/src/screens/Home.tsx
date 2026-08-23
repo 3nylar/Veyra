@@ -7,16 +7,22 @@
  * "Your balance is X" when part of X is unconfirmed or frozen is a claim the
  * user discovers is false at the worst possible moment — when a send fails.
  */
-import { formatBtc, formatSats, type Balance, type Utxo, type WalletSummary } from "../api/client.js";
+import {
+  formatBtc, formatSats,
+  type Balance, type Utxo, type WalletSummary, type HistoryEntry,
+} from "../api/client.js";
 import { Card, Button, Empty, Status } from "../components/Primitives.js";
 import { AddressShort } from "../components/AddressDisplay.js";
+import { Activity } from "../components/Activity.js";
 
 export function Home({
-  summary, balance, utxos, loading, onSend, onReceive, onSync,
+  summary, balance, utxos, history, historyUnavailable, loading, onSend, onReceive, onSync,
 }: {
   summary: WalletSummary | null;
   balance: Balance | null;
   utxos: Utxo[];
+  history: HistoryEntry[];
+  historyUnavailable: boolean;
   loading: boolean;
   onSend: () => void;
   onReceive: () => void;
@@ -70,6 +76,10 @@ export function Home({
           </Button>
           <Button onClick={onReceive}>Receive</Button>
         </div>
+      </Card>
+
+      <Card label="Recent activity">
+        <Activity entries={history} unavailable={historyUnavailable} />
       </Card>
 
       <Card label="Coins">

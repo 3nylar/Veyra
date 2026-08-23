@@ -20,7 +20,7 @@ import {
 } from "./middleware.js";
 import {
   asObject, rejectUnknownKeys, requireAddress, requireSatoshis,
-  requireNumber, optionalEnum, requireId,
+  requireNumber, optionalEnum, requireId, requireString,
 } from "./validation.js";
 import { WalletService } from "./services/walletService.js";
 
@@ -98,6 +98,22 @@ export function createApiServer(config: ServerConfig): Server {
     { method: "GET", segments: ["wallet", "utxos"], handler: () => ({ utxos: service.utxos() }) },
     { method: "GET", segments: ["wallet", "security"], handler: () => service.securityStatus() },
     { method: "POST", segments: ["wallet", "sync"], handler: () => service.sync() },
+    { method: "GET", segments: ["wallet", "fees"], handler: () => service.feeEstimates() },
+    { method: "GET", segments: ["transactions", "replaceable"], handler: () => ({ transactions: service.replaceable() }) },
+    {
+      method: "POST", segments: ["transactions", "bump"],
+      handler: (_request, body) => {
+        rejectUnknownKeys(body, ["txid", "feeRate"]);
+        return service.bumpFee(
+          requireString(body, "txid", { maxLength: 64, pattern: /^[a-f0-9]{64}$/ }),
+          requireNumber(body, "feeRate", { min: 1, max: 10_000 }),
+        );
+      },
+    },
+    {
+      method: "GET", segments: ["transactions"],
+      handler: async () => ({ transactions: await service.history() }),
+    },
 
     // ── Transactions ────────────────────────────────────────────────────
     {

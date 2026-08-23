@@ -93,6 +93,8 @@ function Connected({
           summary={wallet.summary}
           balance={wallet.balance}
           utxos={wallet.utxos}
+          history={wallet.history}
+          historyUnavailable={wallet.historyUnavailable}
           loading={wallet.loading}
           onSend={() => setScreen("send")}
           onReceive={() => setScreen("receive")}
@@ -114,6 +116,7 @@ function Connected({
           api={api}
           isMainnet={isMainnet}
           spendable={wallet.balance?.spendable ?? 0n}
+          fees={wallet.fees}
           onDone={() => {
             setScreen("home");
             void wallet.refresh();

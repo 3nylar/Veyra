@@ -51,11 +51,13 @@ import { decodeSegwitAddress } from "../addresses/bech32.js";
 import { DEFAULT_NETWORK, type Network } from "../bitcoin/networks.js";
 import { UtxoSet, type Utxo, type Balance, isDust, DUST_THRESHOLD_P2WPKH } from "../utxo/utxo.js";
 import { selectCoins, type SelectionResult, type SelectionStrategy } from "../utxo/coinSelection.js";
-import { assertFeeMatchesEstimate } from "../utxo/fees.js";
+import {
+  assertFeeMatchesEstimate, FEE_RATE_PRESETS, INCREMENTAL_RELAY_FEE_RATE,
+} from "../utxo/fees.js";
 import { Transaction, TxInput, TxOutput, SEQUENCE_RBF } from "../transactions/transaction.js";
 import { signTransaction, verifyTransaction, calculateFee } from "../signing/signer.js";
 import { wipe } from "../crypto/entropy.js";
-import type { ChainSource, ChainTransaction } from "../chain/types.js";
+import type { ChainSource, ChainTransaction, FeeEstimates } from "../chain/types.js";
 import { ChainError } from "../chain/types.js";
 import { VeyraError } from "../errors/index.js";
 
@@ -90,6 +92,8 @@ export interface PreparedTransaction {
   readonly feeRate: number;
   readonly inputs: readonly Utxo[];
   readonly strategy: SelectionStrategy;
+  /** Set when this is a BIP-125 replacement: the txid it supersedes. */
+  readonly replaces?: string;
 }
 
 export class Wallet {
@@ -114,6 +118,21 @@ export class Wallet {
 
   /** How deep the address cache currently reaches. Grows, never shrinks. */
   #knownDepth = 0;
+
+  /**
+   * Transactions this wallet has broadcast, by txid.
+   *
+   * Needed to replace one: a fee bump rebuilds the ORIGINAL transaction with a
+   * higher fee, which requires knowing exactly which inputs it spent and what
+   * it paid out.
+   *
+   * ⚠️ In-memory only. Restarting the process loses the ability to bump
+   * anything broadcast before it — the transaction is unaffected and will
+   * still confirm or not on its own, but Veyra can no longer replace it.
+   * Persisting this is a wallet-database feature that does not exist yet, and
+   * saying so is better than a user discovering it while a payment is stuck.
+   */
+  #broadcast = new Map<string, PreparedTransaction>();
 
   private constructor(master: ExtendedKey, network: Network, accountIndex: number) {
     this.#master = master;
@@ -412,22 +431,280 @@ export class Wallet {
     }
 
     this.markSpent(prepared);
+    // Record it so it can be fee-bumped if it gets stuck.
+    this.#broadcast.set(prepared.txid, prepared);
+
+    // A replacement supersedes what it replaced: the two spend the same
+    // inputs, so only one can ever confirm. Dropping the original stops it
+    // being offered for a second bump, which would build on a transaction the
+    // network has already discarded.
+    if (prepared.replaces) this.#broadcast.delete(prepared.replaces);
+
     return reportedTxid;
   }
 
-  /** Transaction history across used addresses, if the source supports it. */
-  async history(source: ChainSource): Promise<ChainTransaction[]> {
-    if (!source.getTransactions) {
-      throw new WalletError(`${source.name} does not provide transaction history`);
+
+  /** Transactions broadcast in this session that could still be replaced. */
+  get replaceable(): Array<{ txid: string; feeRate: number; fee: bigint; amount: bigint }> {
+    return [...this.#broadcast.values()].map((tx) => ({
+      txid: tx.txid,
+      feeRate: tx.feeRate,
+      fee: tx.fee,
+      amount: tx.amount,
+    }));
+  }
+
+  /**
+   * Replace a broadcast transaction with a higher-fee version (BIP-125).
+   *
+   * ─── What a fee bump actually is ────────────────────────────────────────
+   * Not an edit. Bitcoin transactions are immutable once signed — a "bump" is
+   * an entirely new transaction spending the SAME inputs, which makes the two
+   * mutually exclusive: whichever confirms first invalidates the other. Miners
+   * prefer the higher fee, so the replacement wins in practice.
+   *
+   * ─── Where the extra fee comes from ─────────────────────────────────────
+   * The change output. The inputs are fixed, and the recipient must receive
+   * exactly what they were promised — so the increase is taken from what
+   * returns to us, which is the only party who should pay for our fee
+   * misjudgement. If change cannot cover it, the bump is refused rather than
+   * silently reducing the payment.
+   *
+   * ─── BIP-125 rules enforced here ────────────────────────────────────────
+   *   Rule 1  The original signalled replaceability. Every Veyra transaction
+   *           uses sequence 0xfffffffd, so this always holds.
+   *   Rule 2  No new unconfirmed inputs. We add no inputs at all.
+   *   Rule 3  Absolute fee must exceed the original's.
+   *   Rule 4  The INCREASE must additionally cover the replacement's own
+   *           bandwidth, or a node would relay a second copy for free and an
+   *           attacker could flood the network with one-satoshi bumps.
+   *
+   * A replacement violating any of these is rejected by the network with a
+   * confusing message, so they are checked here where the error can be clear.
+   */
+  bumpFee(txid: string, newFeeRate: number): PreparedTransaction {
+    const original = this.#broadcast.get(txid);
+    if (!original) {
+      throw new WalletError(
+        `no broadcast transaction ${txid} is available to replace. Fee bumping ` +
+          `only works for transactions sent in this session — the record is ` +
+          `not persisted across restarts.`,
+      );
     }
-    const seen = new Map<string, ChainTransaction>();
+    if (!Number.isFinite(newFeeRate) || newFeeRate <= original.feeRate) {
+      throw new WalletError(
+        `new fee rate must exceed the original ${original.feeRate.toFixed(2)} sat/vB`,
+      );
+    }
+
+    const inputTotal = original.inputs.reduce((sum, utxo) => sum + utxo.value, 0n);
+    const outputs = [...original.transaction.outputs];
+
+    // Output 0 is the recipient and is never touched. A bump that reduced the
+    // payment would be a different transaction pretending to be the same one.
+    const recipientOutput = outputs[0];
+    if (!recipientOutput || recipientOutput.value !== original.amount) {
+      throw new WalletError("internal error: cannot identify the recipient output");
+    }
+
+    const vsize = original.vsize;
+    const targetFee = BigInt(Math.ceil(vsize * newFeeRate));
+
+    // Rule 4: the increase must cover the replacement's own bandwidth.
+    const minimumFee =
+      original.fee + BigInt(Math.ceil(vsize * INCREMENTAL_RELAY_FEE_RATE));
+    const newFee = targetFee > minimumFee ? targetFee : minimumFee;
+
+    const newChange = inputTotal - original.amount - newFee;
+    if (newChange < 0n) {
+      throw new WalletError(
+        `cannot raise the fee to ${newFee} sat: the inputs only cover ` +
+          `${inputTotal - original.amount} sat above the payment. Reducing the ` +
+          `payment is not done automatically.`,
+      );
+    }
+
+    const newOutputs: TxOutput[] = [recipientOutput];
+    let changeAddress: string | null = null;
+
+    if (newChange >= DUST_THRESHOLD_P2WPKH) {
+      const originalChange = outputs[1];
+      if (!originalChange) {
+        throw new WalletError("internal error: expected a change output to reduce");
+      }
+      // Reuse the ORIGINAL change script. The two transactions are mutually
+      // exclusive so only one can confirm, and a fresh address would burn a
+      // gap-limit slot for an output that may never exist.
+      newOutputs.push(new TxOutput(newChange, originalChange.scriptPubKey));
+      changeAddress = original.changeAddress;
+    }
+    // Below dust the change output disappears and the remainder becomes fee —
+    // the only valid option, since a dust output would not relay.
+
+    const unsigned = new Transaction(
+      original.transaction.version,
+      original.inputs.map(
+        (utxo) =>
+          new TxInput({ txid: utxo.txid, vout: utxo.vout }, new Uint8Array(0), SEQUENCE_RBF),
+      ),
+      newOutputs,
+      original.transaction.locktime,
+    );
+
+    const signed = signTransaction(
+      unsigned,
+      original.inputs.map((utxo) => ({
+        value: utxo.value,
+        privateKey: this.#master.derivePath(utxo.derivationPath).privateKey,
+      })),
+    );
+
+    const inputValues = original.inputs.map((utxo) => utxo.value);
+    if (!verifyTransaction(signed, inputValues)) {
+      throw new WalletError("internal error: the replacement failed verification");
+    }
+
+    const actualFee = calculateFee(signed, inputValues);
+
+    // Rule 3, re-checked against what was built rather than what was planned.
+    if (actualFee <= original.fee) {
+      throw new WalletError(
+        `internal error: replacement fee ${actualFee} does not exceed the original ${original.fee}`,
+      );
+    }
+
+    return {
+      transaction: signed,
+      txid: signed.txid(),
+      hex: signed.toHex(),
+      amount: original.amount,
+      fee: actualFee,
+      total: original.amount + actualFee,
+      change: newChange >= DUST_THRESHOLD_P2WPKH ? newChange : 0n,
+      changeAddress,
+      recipient: original.recipient,
+      remainingBalance: original.remainingBalance + original.fee - actualFee,
+      vsize: signed.vsize(),
+      feeRate: Number(actualFee) / signed.vsize(),
+      inputs: original.inputs,
+      strategy: original.strategy,
+      replaces: original.txid,
+    };
+  }
+
+  /**
+   * Transaction history across every address this wallet controls.
+   *
+   * ─── Folding across addresses ───────────────────────────────────────────
+   * One transaction commonly touches several of our addresses at once — a
+   * spend consumes inputs from one and returns change to another. Reporting
+   * those as separate entries would show a single payment twice with
+   * misleading amounts, so entries are folded by txid and their net values
+   * SUMMED.
+   *
+   * That sum is what makes the direction meaningful. A send of 0.1 with 0.9
+   * change looks like "−1.0" on the input address and "+0.9" on the change
+   * address; only the sum, −0.1 plus fee, describes what actually happened to
+   * the wallet.
+   */
+  async history(source: ChainSource, options: { limit?: number } = {}): Promise<ChainTransaction[]> {
+    if (!source.getTransactions) {
+      throw new WalletError(
+        `${source.name} does not provide transaction history. For a Bitcoin Core ` +
+          `node, call importAddressesForHistory() first.`,
+      );
+    }
+
+    const folded = new Map<string, ChainTransaction>();
+
     for (const address of this.knownAddresses()) {
-      for (const tx of await source.getTransactions(address)) {
-        // Deduplicate: one transaction can touch several of our addresses.
-        seen.set(tx.txid, tx);
+      let entries: ChainTransaction[];
+      try {
+        entries = await source.getTransactions(address);
+      } catch (error) {
+        // One address failing must not lose the whole history — but a
+        // configuration error (no watch wallet) should surface, not be
+        // silently swallowed into an empty list.
+        if (/watch-only wallet .* does not exist|importAddressesForHistory/.test((error as Error).message)) {
+          throw new WalletError((error as Error).message);
+        }
+        continue;
+      }
+
+      for (const entry of entries) {
+        const existing = folded.get(entry.txid);
+        if (!existing) {
+          folded.set(entry.txid, entry);
+          continue;
+        }
+        const netValue = (existing.netValue ?? 0n) + (entry.netValue ?? 0n);
+        folded.set(entry.txid, {
+          ...existing,
+          netValue,
+          direction: netValue > 0n ? "received" : netValue < 0n ? "sent" : "internal",
+          // Prefer a known fee over an absent one; they agree when both exist.
+          ...(existing.fee ?? entry.fee ? { fee: existing.fee ?? entry.fee } : {}),
+        });
       }
     }
-    return [...seen.values()].sort((a, b) => b.confirmations - a.confirmations);
+
+    return [...folded.values()]
+      .sort((a, b) => {
+        // Unconfirmed first, then newest confirmed. A user looking at history
+        // cares most about what has not settled yet.
+        if (a.confirmations !== b.confirmations) return a.confirmations - b.confirmations;
+        return (b.blockTime ?? 0) - (a.blockTime ?? 0);
+      })
+      .slice(0, options.limit ?? 100);
+  }
+
+  /**
+   * Live fee estimates, with an honest fallback.
+   *
+   * If the source cannot estimate — no chain source configured, or a regtest
+   * node with no fee market to estimate from — this returns the static
+   * presets with `source: "static defaults"`. The caller can therefore always
+   * render something, and can always tell whether the number reflects the
+   * network or is a guess.
+   *
+   * Fabricating an estimate and presenting it as live would be worse than
+   * either: the user would set a fee believing it was informed.
+   */
+  async feeEstimates(source?: ChainSource): Promise<FeeEstimates & { isLive: boolean }> {
+    const fallback = {
+      high: FEE_RATE_PRESETS.high,
+      medium: FEE_RATE_PRESETS.medium,
+      low: FEE_RATE_PRESETS.low,
+      source: "static defaults — not live network rates",
+      fetchedAt: Date.now(),
+      isLive: false,
+    };
+
+    if (!source?.getFeeEstimates) return fallback;
+
+    try {
+      const live = await source.getFeeEstimates();
+      // A source that answered but produced no usable target is no better
+      // than none. Regtest does this, correctly.
+      if (live.high === undefined && live.medium === undefined && live.low === undefined) {
+        return {
+          ...fallback,
+          source: `${live.source} has no estimates yet — using static defaults`,
+        };
+      }
+      // Fill any missing target from the fallback rather than omitting it, so
+      // a UI never has to render a blank fee option.
+      return {
+        high: live.high ?? fallback.high,
+        medium: live.medium ?? fallback.medium,
+        low: live.low ?? fallback.low,
+        source: live.source,
+        fetchedAt: live.fetchedAt,
+        isLive: true,
+      };
+    } catch {
+      return fallback;
+    }
   }
 
   get utxos(): UtxoSet {

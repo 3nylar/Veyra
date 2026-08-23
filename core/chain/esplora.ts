@@ -43,7 +43,7 @@
  */
 
 import {
-  ChainSource, ChainUtxo, ChainTransaction, AddressActivity, ChainError,
+  ChainSource, ChainUtxo, ChainTransaction, AddressActivity, ChainError, FeeEstimates,
   validateTxid, validateAmount, validateIndex, validateHeight, normalizeConfirmations,
 } from "./types.js";
 
@@ -241,6 +241,16 @@ export class EsploraChainSource implements ChainSource {
     return { address, hasHistory, utxos };
   }
 
+  /**
+   * Transactions touching an address, with direction.
+   *
+   * Esplora returns full transactions including every input and output, so the
+   * net effect on this address is computed here: sum the outputs paying it,
+   * subtract the inputs spending from it. Positive means value arrived.
+   *
+   * A list without direction is close to useless — "0.5 BTC" tells a user
+   * nothing about whether they gained or lost it.
+   */
   async getTransactions(address: string): Promise<ChainTransaction[]> {
     this.assertPlausibleAddress(address);
     const data = await this.requestJson(`/address/${encodeURIComponent(address)}/txs`);
@@ -255,16 +265,77 @@ export class EsploraChainSource implements ChainSource {
       const confirmed = status.confirmed === true;
       const blockHeight = confirmed ? validateHeight(status.block_height, `tx[${i}] height`) : undefined;
 
+      let received = 0n;
+      let spent = 0n;
+
+      for (const output of (item.vout as unknown[]) ?? []) {
+        const vout = output as Record<string, unknown>;
+        if (vout.scriptpubkey_address === address) {
+          received += validateAmount(vout.value, `tx[${i}] vout value`);
+        }
+      }
+      for (const input of (item.vin as unknown[]) ?? []) {
+        const vin = input as Record<string, unknown>;
+        const prevout = (vin.prevout ?? {}) as Record<string, unknown>;
+        if (prevout.scriptpubkey_address === address) {
+          spent += validateAmount(prevout.value, `tx[${i}] vin value`);
+        }
+      }
+
+      const netValue = received - spent;
+
       return {
         txid: validateTxid(item.txid, `tx[${i}]`),
         confirmations: blockHeight !== undefined
           ? normalizeConfirmations(tipHeight - blockHeight + 1)
           : 0,
+        netValue,
+        direction: netValue > 0n ? "received" : netValue < 0n ? "sent" : "internal",
         ...(blockHeight !== undefined ? { blockHeight } : {}),
         ...(typeof status.block_time === "number" ? { blockTime: status.block_time } : {}),
         ...(item.fee !== undefined ? { fee: validateAmount(item.fee, `tx[${i}] fee`) } : {}),
       };
     });
+  }
+
+  /**
+   * Live fee estimates via `/fee-estimates`.
+   *
+   * Esplora returns an object keyed by confirmation target, in sat/vB already.
+   * Targets are sparse — a server may answer for 1, 2, 3, 6, 10, 144 and not
+   * the numbers in between — so each is looked up with fallbacks rather than
+   * assumed present.
+   */
+  async getFeeEstimates(): Promise<FeeEstimates> {
+    const data = (await this.requestJson("/fee-estimates")) as Record<string, unknown>;
+    if (typeof data !== "object" || data === null) {
+      throw new ChainError("fee estimates response was not an object");
+    }
+
+    /** First available target from the candidates, as a sane sat/vB value. */
+    const pick = (candidates: number[]): number | undefined => {
+      for (const target of candidates) {
+        const value = data[String(target)];
+        if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) continue;
+        // Bound it: a server reporting 100000 sat/vB would otherwise become a
+        // fee that empties the wallet.
+        if (value > 5000) continue;
+        return Math.max(1, Math.ceil(value));
+      }
+      return undefined;
+    };
+
+    const high = pick([1, 2, 3]);
+    const medium = pick([6, 5, 4, 3]);
+    const low = pick([144, 72, 48, 24]);
+
+    return {
+      ...(high !== undefined ? { high } : {}),
+      ...(medium !== undefined ? { medium } : {}),
+      ...(low !== undefined ? { low } : {}),
+      source: this.name,
+      fetchedAt: Date.now(),
+    };
   }
 
   /**

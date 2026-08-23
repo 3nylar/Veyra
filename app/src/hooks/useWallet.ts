@@ -10,7 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   VeyraApi, ApiClientError,
   type Balance, type WalletSummary, type AddressInfo,
-  type Utxo, type SecurityStatus,
+  type Utxo, type SecurityStatus, type HistoryEntry, type FeeEstimates,
 } from "../api/client.js";
 
 export interface WalletState {
@@ -22,6 +22,11 @@ export interface WalletState {
   address: AddressInfo | null;
   utxos: Utxo[];
   security: SecurityStatus | null;
+  history: HistoryEntry[];
+  /** Null when unavailable — the UI must not invent a rate. */
+  fees: FeeEstimates | null;
+  /** True when history could not be loaded, so the UI can say so rather than showing "none". */
+  historyUnavailable: boolean;
 }
 
 const EMPTY: WalletState = {
@@ -33,6 +38,9 @@ const EMPTY: WalletState = {
   address: null,
   utxos: [],
   security: null,
+  history: [],
+  fees: null,
+  historyUnavailable: false,
 };
 
 export function useWallet(api: VeyraApi) {
@@ -46,9 +54,23 @@ export function useWallet(api: VeyraApi) {
       const [summary, balance, address, utxos, security] = await Promise.all([
         api.wallet(), api.balance(), api.address(), api.utxos(), api.security(),
       ]);
+
+      // History and fees are fetched separately and allowed to fail: a chain
+      // source that cannot provide history must not blank the whole wallet.
+      // Crucially, a FAILURE is distinguished from an EMPTY history — telling
+      // someone they have no transactions when the lookup broke is worse than
+      // saying nothing.
+      const [history, fees] = await Promise.all([
+        api.history().catch(() => null),
+        api.fees().catch(() => null),
+      ]);
+
       setState({
         loading: false, error: null, connected: true,
         summary, balance, address, utxos, security,
+        history: history ?? [],
+        historyUnavailable: history === null,
+        fees,
       });
     } catch (error) {
       const message =

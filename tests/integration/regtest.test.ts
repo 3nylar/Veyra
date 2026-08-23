@@ -229,6 +229,109 @@ suite("REGTEST: end-to-end against a real Bitcoin Core node", () => {
     expect(await wallet.broadcast(node, prepared)).toBe(prepared.txid);
   }, 180_000);
 
+  it("fee estimation reports UNAVAILABLE on regtest, rather than inventing a rate", async () => {
+    // A private chain has no fee market and no history to estimate from, so
+    // Core returns errors for every target. Reporting that honestly is the
+    // correct behaviour — a fabricated "live" rate would be worse than none.
+    const estimates = await node.getFeeEstimates();
+    expect(estimates.source).toContain("bitcoind");
+
+    const { wallet } = Wallet.create(REGTEST, 12);
+    const resolved = await wallet.feeEstimates(node);
+    expect(resolved.isLive).toBe(false);
+    expect(resolved.source).toMatch(/static defaults|no estimates yet/);
+    // A usable number is still returned, so a UI never renders a blank.
+    expect(resolved.high).toBeGreaterThanOrEqual(1);
+  }, 60_000);
+
+  it("transaction history works via a watch-only descriptor import", async () => {
+    const { wallet } = Wallet.create(REGTEST, 12);
+    const addresses = wallet.receiveAddresses(3).map((a) => a.address);
+
+    // History needs an import; the UTXO set alone cannot answer it, because a
+    // spent output is simply gone from it.
+    await node.importAddressesForHistory(addresses, { since: 0 });
+
+    await node.fundAddress(NODE_WALLET, addresses[0]!, 700_000n);
+    await node.generateToAddress(1, nodeAddress);
+
+    const history = await wallet.history(node);
+    expect(history.length).toBeGreaterThanOrEqual(1);
+
+    const received = history.find((tx) => tx.direction === "received");
+    expect(received).toBeDefined();
+    expect(received!.netValue).toBe(700_000n);
+    expect(received!.confirmations).toBeGreaterThanOrEqual(1);
+  }, 180_000);
+
+  it("history FOLDS a send and its change into one entry", async () => {
+    // The case a naive implementation gets wrong: a spend consumes an input
+    // from one address and returns change to another, producing two rows that
+    // each misdescribe what happened.
+    const { wallet } = Wallet.create(REGTEST, 12);
+    const receive = wallet.receiveAddresses(3).map((a) => a.address);
+    const change = wallet.account.deriveAddresses(1, 0, 3).map((a) => a.address);
+    await node.importAddressesForHistory([...receive, ...change], { since: 0 });
+
+    await node.fundAddress(NODE_WALLET, receive[0]!, 1_000_000n);
+    await node.generateToAddress(1, nodeAddress);
+    await wallet.sync(node);
+
+    const { wallet: recipient } = Wallet.create(REGTEST, 12);
+    const prepared = wallet.send({
+      to: recipient.currentReceiveAddress().address, amount: 300_000n, feeRate: 4,
+    });
+    await wallet.broadcast(node, prepared);
+    await node.generateToAddress(1, nodeAddress);
+
+    const history = await wallet.history(node);
+    const spend = history.filter((tx) => tx.txid === prepared.txid);
+
+    // ONE entry, not two.
+    expect(spend.length).toBe(1);
+    expect(spend[0]!.direction).toBe("sent");
+    // Net cost is the payment plus the fee, not the whole consumed input.
+    expect(spend[0]!.netValue).toBe(-(300_000n + prepared.fee));
+  }, 240_000);
+
+  it("Bitcoin Core ACCEPTS a BIP-125 fee replacement", async () => {
+    // The rules are enforced by nodes, not by us. This is the only test that
+    // proves our replacement satisfies them rather than merely appearing to.
+    const { wallet } = Wallet.create(REGTEST, 12);
+    await node.fundAddress(NODE_WALLET, wallet.currentReceiveAddress().address, 2_000_000n);
+    await node.generateToAddress(1, nodeAddress);
+    await wallet.sync(node);
+
+    const { wallet: recipient } = Wallet.create(REGTEST, 12);
+    const original = wallet.send({
+      to: recipient.currentReceiveAddress().address, amount: 500_000n, feeRate: 1,
+    });
+    await wallet.broadcast(node, original);
+
+    // Replace it, unconfirmed, with a higher fee.
+    const bumped = wallet.bumpFee(original.txid, 20);
+    expect(bumped.fee).toBeGreaterThan(original.fee);
+
+    const replacementTxid = await wallet.broadcast(node, bumped);
+    expect(replacementTxid).toBe(bumped.txid);
+    expect(replacementTxid).not.toBe(original.txid);
+
+    // Confirm, and check the REPLACEMENT is what landed.
+    await node.generateToAddress(1, nodeAddress);
+    const recipientSync = await recipient.sync(node);
+    expect(recipientSync.balance.spendable).toBe(500_000n);
+  }, 240_000);
+
+  // NOTE: there is deliberately no test here for Core rejecting an
+  // insufficient fee bump. Building one requires signing a transaction the
+  // wallet would never produce, which means reaching past the secrecy
+  // boundary for a private key — and a test that needs to break the
+  // architecture to exist is testing the wrong thing.
+  //
+  // The rule itself is covered in tests/unit/rbf.test.ts, which asserts that
+  // bumpFee always raises a too-small request to the minimum valid
+  // replacement rather than building something the network would reject.
+
   it("a restored wallet finds the same funds via gap-limit scan", async () => {
     const { wallet, mnemonic } = Wallet.create(REGTEST, 12);
     await node.fundAddress(NODE_WALLET, wallet.currentReceiveAddress().address, 600_000n);

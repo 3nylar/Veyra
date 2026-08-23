@@ -151,6 +151,49 @@ export class WalletService {
     }));
   }
 
+  /**
+   * Transaction history.
+   *
+   * Amounts are strings and carry a sign: negative means value left the
+   * wallet. `direction` is provided too, so a client does not have to infer it
+   * from a string comparison.
+   */
+  async history(limit = 50): Promise<Array<Record<string, unknown>>> {
+    if (!this.chain) {
+      throw unprocessable("No chain source is configured for this wallet");
+    }
+    const entries = await this.wallet.history(this.chain, { limit });
+    return entries.map((tx) => ({
+      txid: tx.txid,
+      confirmations: tx.confirmations,
+      direction: tx.direction ?? null,
+      netValue: tx.netValue?.toString() ?? null,
+      fee: tx.fee?.toString() ?? null,
+      blockHeight: tx.blockHeight ?? null,
+      blockTime: tx.blockTime ?? null,
+    }));
+  }
+
+  /**
+   * Fee estimates.
+   *
+   * `isLive` is the field that matters: it tells the client whether these came
+   * from the network or are static defaults. A client that shows a static
+   * guess as though it were a live rate misleads the user into setting a fee
+   * they believe is informed.
+   */
+  async feeEstimates(): Promise<Record<string, unknown>> {
+    const estimates = await this.wallet.feeEstimates(this.chain);
+    return {
+      high: estimates.high,
+      medium: estimates.medium,
+      low: estimates.low,
+      isLive: estimates.isLive,
+      source: estimates.source,
+      fetchedAt: new Date(estimates.fetchedAt).toISOString(),
+    };
+  }
+
   async sync(): Promise<{ utxos: number; addressesScanned: number }> {
     if (!this.chain) {
       throw unprocessable("No chain source is configured for this wallet");
@@ -261,6 +304,51 @@ export class WalletService {
       inputCount: entry.prepared.inputs.length,
       txid: entry.prepared.txid,
     };
+  }
+
+  /**
+   * Replace a broadcast transaction with a higher-fee version.
+   *
+   * Returns a review exactly like `prepare`, held under a new id — so the
+   * user sees the replacement's real fee and change before it goes out, and
+   * confirms it through the same two-step flow. A bump is a spend, and gets
+   * the same scrutiny as one.
+   */
+  bumpFee(txid: string, feeRate: number): TransactionReview {
+    this.evictExpired();
+    if (this.pending.size >= MAX_PENDING) {
+      throw conflict("Too many transactions awaiting confirmation");
+    }
+
+    const prepared = this.wallet.bumpFee(txid, feeRate);
+    const id = randomBytes(16).toString("hex");
+    const now = Date.now();
+    this.pending.set(id, { id, prepared, createdAt: now, expiresAt: now + PREPARED_TTL_MS });
+
+    return {
+      id,
+      expiresAt: new Date(now + PREPARED_TTL_MS).toISOString(),
+      recipient: prepared.recipient,
+      amount: prepared.amount.toString(),
+      fee: prepared.fee.toString(),
+      total: prepared.total.toString(),
+      change: prepared.change.toString(),
+      remainingBalance: prepared.remainingBalance.toString(),
+      feeRate: Number(prepared.feeRate.toFixed(2)),
+      vsize: prepared.vsize,
+      inputCount: prepared.inputs.length,
+      txid: prepared.txid,
+    };
+  }
+
+  /** Transactions from this session that can still be replaced. */
+  replaceable(): Array<Record<string, unknown>> {
+    return this.wallet.replaceable.map((tx) => ({
+      txid: tx.txid,
+      feeRate: Number(tx.feeRate.toFixed(2)),
+      fee: tx.fee.toString(),
+      amount: tx.amount.toString(),
+    }));
   }
 
   /** Cancel a pending transaction. Nothing was broadcast, so nothing to undo. */

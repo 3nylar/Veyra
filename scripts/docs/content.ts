@@ -981,6 +981,10 @@ txid for it.`)}
 <h2 id="unreleased">Unreleased</h2>
 <h3>Added</h3>
 <ul>
+  <li><strong>Taproot (BIP-86 / BIP-341)</strong> — P2TR addresses matching all three published BIP-86 vectors, and Schnorr key-path signing. The sighash commits to <em>every</em> input's amount and script, closing a gap BIP-143 leaves open.</li>
+  <li><strong>RBF fee bumping</strong> — <code>POST /transactions/bump</code> replaces a stuck transaction, taking the extra fee from change and enforcing BIP-125 rules 2, 3 and 4 locally so the network's rejection message is never the first sign of a problem.</li>
+  <li><strong>Transaction history</strong> — <code>GET /transactions</code>, with direction and net value, folded so a send and its change are one entry.</li>
+  <li><strong>Live fee estimation</strong> — <code>GET /wallet/fees</code>, from <code>estimatesmartfee</code> or Esplora, with an <code>isLive</code> flag so a static fallback is never mistaken for a network rate.</li>
   <li>Documentation site with a live request console.</li>
   <li>CORS with an explicit origin allowlist.</li>
   <li>Wallet interface: balance, receive, send flow, and security centre.</li>
@@ -999,6 +1003,8 @@ txid for it.`)}
   <li><strong>VEY-001</strong> — a security guard silently stopped guarding on Windows, passing vacuously.</li>
   <li><strong>VEY-008</strong> — the API was unreachable from any browser; 55 tests missed it because Node's <code>fetch</code> does not enforce CORS.</li>
   <li><strong>VEY-009</strong> — a test asserted wall-clock time, so it measured the machine rather than the code.</li>
+  <li><strong>VEY-012</strong> — a Taproot address encoder accepted non-32-byte output keys, which under current consensus are spendable by anyone.</li>
+  <li><strong>VEY-011</strong> — float arithmetic overcharged fee estimates by up to 100%: <code>(0.00002 * 1e8) / 1000</code> is 2.0000000000000004, which <code>Math.ceil</code> makes 3.</li>
 </ul>
 
 <h2 id="verified">Consensus verification — 2026-08-20</h2>
@@ -1016,11 +1022,8 @@ finds real funds.`)}
 <h2 id="missing">Not yet built</h2>
 <table>
   <tr><th>Missing</th><th>Consequence</th></tr>
-  <tr><td>Live fee estimation</td><td>Rates are static; wrong during congestion.</td></tr>
-  <tr><td>Transaction history</td><td>Only current UTXOs are exposed.</td></tr>
-  <tr><td>Fee bumping</td><td>RBF is signalled but no endpoint uses it.</td></tr>
+  <tr><td>Fee-bump persistence</td><td>Replaceable transactions are remembered in memory only; a restart loses the ability to bump them.</td></tr>
   <tr><td>TLS</td><td>Plain HTTP; needs a reverse proxy beyond localhost.</td></tr>
-  <tr><td>Taproot (BIP-86)</td><td>Bech32m support exists; address derivation does not.</td></tr>
   <tr><td>Lightning</td><td>Not started. Will not be claimed until real infrastructure exists.</td></tr>
 </table>
 

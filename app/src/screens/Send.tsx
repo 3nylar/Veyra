@@ -24,32 +24,48 @@
 import { useState } from "react";
 import {
   VeyraApi, ApiClientError, formatBtc, formatSats, parseBtc,
-  type TransactionReview,
+  type TransactionReview, type FeeEstimates,
 } from "../api/client.js";
 import { Card, Button, Field, Notice, Row } from "../components/Primitives.js";
 import { AddressDisplay } from "../components/AddressDisplay.js";
 
 type Stage = "compose" | "review" | "sending" | "result" | "failed";
 
-const FEE_PRESETS = [
-  { label: "Economy", rate: 2, note: "hours to a day" },
-  { label: "Standard", rate: 8, note: "within a few blocks" },
-  { label: "Priority", rate: 20, note: "next block or two" },
+/** Fallback presets, used only when the API has no live estimates. */
+const STATIC_PRESETS = [
+  { key: "low" as const, label: "Economy", rate: 2, note: "hours to a day" },
+  { key: "medium" as const, label: "Standard", rate: 8, note: "within a few blocks" },
+  { key: "high" as const, label: "Priority", rate: 20, note: "next block or two" },
 ];
 
+/**
+ * Build the fee options from live estimates when available.
+ *
+ * When they are not, the static rates are still shown — a user must always be
+ * able to send — but the interface says plainly that they are not live. A
+ * static guess presented as a network rate leads someone to set a fee
+ * believing it was informed.
+ */
+function feeOptions(fees: FeeEstimates | null) {
+  if (!fees) return STATIC_PRESETS;
+  return STATIC_PRESETS.map((preset) => ({ ...preset, rate: fees[preset.key] ?? preset.rate }));
+}
+
 export function Send({
-  api, isMainnet, spendable, onDone, onBack,
+  api, isMainnet, spendable, fees, onDone, onBack,
 }: {
   api: VeyraApi;
   isMainnet: boolean;
   spendable: bigint;
+  fees: FeeEstimates | null;
   onDone: () => void;
   onBack: () => void;
 }) {
+  const presets = feeOptions(fees);
   const [stage, setStage] = useState<Stage>("compose");
   const [recipient, setRecipient] = useState("");
   const [amountText, setAmountText] = useState("");
-  const [feeRate, setFeeRate] = useState(8);
+  const [feeRate, setFeeRate] = useState(presets[1]!.rate);
   const [review, setReview] = useState<TransactionReview | null>(null);
   const [txid, setTxid] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -151,9 +167,9 @@ export function Send({
 
           <span className="field-label">Network fee</span>
           <div className="btn-row" style={{ marginBottom: "var(--s2)" }}>
-            {FEE_PRESETS.map((preset) => (
+            {presets.map((preset) => (
               <Button
-                key={preset.rate}
+                key={preset.key}
                 variant={feeRate === preset.rate ? "primary" : "default"}
                 onClick={() => setFeeRate(preset.rate)}
                 aria-pressed={feeRate === preset.rate}
@@ -163,9 +179,15 @@ export function Send({
             ))}
           </div>
           <p className="field-hint">
-            {FEE_PRESETS.find((preset) => preset.rate === feeRate)?.note} ·{" "}
-            {feeRate} sat/vB. These are fixed estimates, not live network rates —
-            during congestion they may be too low.
+            {presets.find((preset) => preset.rate === feeRate)?.note} · {feeRate} sat/vB
+            {fees?.isLive ? (
+              <> · live rates from {fees.source}</>
+            ) : (
+              <>
+                {" "}· <strong>not live network rates.</strong> These are fixed
+                defaults; during congestion they may be too low.
+              </>
+            )}
           </p>
 
           {error ? <><div className="spacer" /><Notice tone="danger">{error}</Notice></> : null}

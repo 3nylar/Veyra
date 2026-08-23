@@ -241,10 +241,135 @@ describe("regtest-only helpers are gated by network", () => {
   });
 });
 
-describe("getTransactions is NOT faked", () => {
-  it("throws rather than returning an empty array", async () => {
-    // Returning [] would let a caller mistake "not implemented" for "no
-    // history" — a silent wrong answer instead of a loud missing feature.
-    await expect(node({}).getTransactions(ADDRESS)).rejects.toThrow(/not implemented/);
+describe("transaction history", () => {
+  it("REPORTS a missing watch-only wallet rather than returning an empty array", async () => {
+    // Returning [] would let a caller mistake an unconfigured source for "no
+    // history" — a silent wrong answer, and "you have no transactions" is a
+    // damaging thing to say incorrectly.
+    const source = node({
+      listtransactions: new Error("Requested wallet does not exist or is not loaded"),
+    });
+    await expect(source.getTransactions(ADDRESS)).rejects.toThrow(/importAddressesForHistory/);
+  });
+
+  it("parses entries and computes direction from the signed amount", async () => {
+    const source = node({
+      listtransactions: [
+        { txid: TXID, address: ADDRESS, amount: 0.005, confirmations: 6, blocktime: 1700000000 },
+      ],
+    });
+    const history = await source.getTransactions(ADDRESS);
+    expect(history.length).toBe(1);
+    expect(history[0]!.netValue).toBe(500_000n);
+    expect(history[0]!.direction).toBe("received");
+    expect(history[0]!.confirmations).toBe(6);
+  });
+
+  it("treats a NEGATIVE amount as a send", async () => {
+    // Core reports sends as negative BTC. btcToSatoshis rejects negatives, so
+    // the sign must be handled before conversion, not after.
+    const source = node({
+      listtransactions: [
+        { txid: TXID, address: ADDRESS, amount: -0.002, confirmations: 1, fee: -0.00000705 },
+      ],
+    });
+    const history = await source.getTransactions(ADDRESS);
+    expect(history[0]!.netValue).toBe(-200_000n);
+    expect(history[0]!.direction).toBe("sent");
+    expect(history[0]!.fee).toBe(705n);
+  });
+
+  it("FOLDS several entries for one txid by summing their amounts", async () => {
+    // Core emits one entry per matching output, so a transaction paying an
+    // address twice appears twice.
+    const source = node({
+      listtransactions: [
+        { txid: TXID, address: ADDRESS, amount: 0.001, confirmations: 2 },
+        { txid: TXID, address: ADDRESS, amount: 0.002, confirmations: 2 },
+      ],
+    });
+    const history = await source.getTransactions(ADDRESS);
+    expect(history.length).toBe(1);
+    expect(history[0]!.netValue).toBe(300_000n);
+  });
+
+  it("ignores entries for other addresses", async () => {
+    const source = node({
+      listtransactions: [
+        { txid: TXID, address: ADDRESS, amount: 0.001, confirmations: 2 },
+        { txid: "c".repeat(64), address: "bcrt1qsomeoneelse", amount: 5, confirmations: 2 },
+      ],
+    });
+    expect((await source.getTransactions(ADDRESS)).length).toBe(1);
+  });
+
+  it("rejects a malformed txid in the response", async () => {
+    const source = node({
+      listtransactions: [{ txid: "nope", address: ADDRESS, amount: 0.001, confirmations: 1 }],
+    });
+    await expect(source.getTransactions(ADDRESS)).rejects.toThrow(/hex txid/);
+  });
+});
+
+describe("fee estimation", () => {
+  it("converts BTC/kvB to sat/vB", async () => {
+    // Core reports BTC per kvB. 0.00002 BTC/kvB = 2000 sat per 1000 vB = 2 sat/vB.
+    const source = node({ estimatesmartfee: { feerate: 0.00002, blocks: 6 } });
+    const estimates = await source.getFeeEstimates();
+    expect(estimates.high).toBe(2);
+    expect(estimates.medium).toBe(2);
+    expect(estimates.low).toBe(2);
+  });
+
+  it("REGRESSION (VEY-011): float conversion overcharges by up to 100%", async () => {
+    // `(0.00002 * 1e8) / 1000` is 2.0000000000000004 in IEEE 754, and
+    // Math.ceil turns that into 3 — a fee rate 50% above what the node
+    // recommended. 0.00001 is worse: 1 becomes 2, a 100% overcharge.
+    //
+    // These are ordinary rates, not contrived edge cases, which is what makes
+    // the bug expensive. The fix converts through the decimal string.
+    for (const [feerate, expected] of [
+      [0.00001, 1],
+      [0.00002, 2],
+      [0.00003, 3],
+      [0.00007, 7],
+      [0.0001, 10],
+      [0.00025, 25],
+      [0.001, 100],
+    ] as const) {
+      const source = node({ estimatesmartfee: { feerate } });
+      const estimates = await source.getFeeEstimates();
+      expect(estimates.high, `feerate ${feerate}`).toBe(expected);
+    }
+  });
+
+  it("rounds UP a fractional sat/vB, because under-paying risks a stuck transaction", async () => {
+    // 0.00000253 BTC/kvB = 253 sat/kvB = 0.253 sat/vB -> 1 sat/vB.
+    const source = node({ estimatesmartfee: { feerate: 0.00000253 } });
+    expect((await source.getFeeEstimates()).high).toBe(1);
+  });
+
+  it("OMITS a target Core cannot estimate, rather than guessing", async () => {
+    // Regtest does exactly this: no fee market, no history, errors for every
+    // target. Absent is the honest answer.
+    const source = node({ estimatesmartfee: { errors: ["Insufficient data"] } });
+    const estimates = await source.getFeeEstimates();
+    expect(estimates.high).toBeUndefined();
+    expect(estimates.medium).toBeUndefined();
+    expect(estimates.low).toBeUndefined();
+    expect(estimates.source).toContain("bitcoind");
+  });
+
+  it("never returns a rate below the relay minimum", async () => {
+    const source = node({ estimatesmartfee: { feerate: 0.000000001 } });
+    const estimates = await source.getFeeEstimates();
+    if (estimates.high !== undefined) expect(estimates.high).toBeGreaterThanOrEqual(1);
+  });
+
+  it("survives a failing target without failing the whole call", async () => {
+    const source = node({ estimatesmartfee: new Error("Method not found") });
+    const estimates = await source.getFeeEstimates();
+    expect(estimates.source).toContain("bitcoind");
+    expect(estimates.high).toBeUndefined();
   });
 });

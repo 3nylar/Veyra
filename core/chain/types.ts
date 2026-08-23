@@ -72,15 +72,52 @@ export interface ChainUtxo {
   readonly blockHeight?: number;
 }
 
-/** A transaction touching one of our addresses. */
+/**
+ * A transaction touching one of our addresses.
+ *
+ * `netValue` is the field that makes a history readable: positive means value
+ * arrived, negative means it left. A list that shows only amounts, without
+ * direction, tells a user nothing they could act on.
+ */
 export interface ChainTransaction {
   readonly txid: string;
   readonly confirmations: number;
   readonly blockHeight?: number;
+  /** Unix seconds. Absent while unconfirmed. */
   readonly blockTime?: number;
   /** Net effect on the wallet, in satoshis. Negative for a spend. */
   readonly netValue?: bigint;
+  /** Fee paid. Only known for transactions we sent. */
   readonly fee?: bigint;
+  /** Derived from netValue, for display. */
+  readonly direction?: "received" | "sent" | "internal";
+}
+
+/**
+ * Fee estimates from live network conditions, in sat/vB.
+ *
+ * ─── Why these are not simply "the fee" ────────────────────────────────────
+ * A fee estimate is a prediction about a competitive auction. It says: given
+ * what is currently in the mempool, this rate has historically been enough to
+ * confirm within N blocks. It is not a guarantee, and it goes stale in
+ * minutes — a burst of activity can leave a "next block" estimate confirming
+ * in an hour.
+ *
+ * Every field is optional because sources disagree about which targets they
+ * can answer, and a node on a fresh chain can answer none of them. A missing
+ * estimate must surface as "unavailable", never as a fabricated number.
+ */
+export interface FeeEstimates {
+  /** Target: next block or two. */
+  readonly high?: number;
+  /** Target: within a few blocks. */
+  readonly medium?: number;
+  /** Target: within a day. */
+  readonly low?: number;
+  /** Where these came from, for display. */
+  readonly source: string;
+  /** When fetched. Estimates go stale quickly. */
+  readonly fetchedAt: number;
 }
 
 /** Whether an address has ever been used — the signal the gap-limit scan follows. */
@@ -116,8 +153,16 @@ export interface ChainSource {
   /** Publish a raw transaction. Returns the txid the server reports. */
   broadcast(rawTxHex: string): Promise<string>;
 
-  /** Transactions touching an address. */
+  /** Transactions touching an address. Optional: not every source can answer it. */
   getTransactions?(address: string): Promise<ChainTransaction[]>;
+
+  /**
+   * Live fee estimates. Optional.
+   *
+   * A source that cannot estimate must omit this method rather than returning
+   * invented numbers — the wallet falls back to static defaults and says so.
+   */
+  getFeeEstimates?(): Promise<FeeEstimates>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

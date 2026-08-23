@@ -56,7 +56,7 @@
  */
 
 import {
-  ChainSource, ChainUtxo, ChainTransaction, AddressActivity, ChainError,
+  ChainSource, ChainUtxo, ChainTransaction, AddressActivity, ChainError, FeeEstimates,
   validateTxid, validateAmount, validateIndex, validateHeight, normalizeConfirmations,
 } from "./types.js";
 
@@ -112,6 +112,22 @@ export function btcToSatoshis(btc: unknown, context: string): bigint {
     BigInt(whole) * SATOSHIS_PER_BTC + BigInt((fraction + "00000000").slice(0, 8));
   if (negative) throw new ChainError(`${context}: amount is negative`);
   return validateAmount(satoshis, context);
+}
+
+/**
+ * Satoshis to a BTC decimal string, exactly.
+ *
+ * The inverse of `btcToSatoshis`, and it avoids floats for the same reason:
+ * `Number(satoshis) / 1e8` is inexact, and the same shape produced VEY-011,
+ * where a fee estimate was overcharged by up to 100%.
+ *
+ * String construction has no rounding step to get wrong.
+ */
+export function satoshisToBtcString(satoshis: bigint): string {
+  if (satoshis < 0n) throw new ChainError("amount cannot be negative");
+  const whole = satoshis / SATOSHIS_PER_BTC;
+  const fraction = (satoshis % SATOSHIS_PER_BTC).toString().padStart(8, "0");
+  return `${whole}.${fraction}`;
 }
 
 interface RpcResponse {
@@ -308,12 +324,198 @@ export class BitcoinRpcChainSource implements ChainSource {
     return validateTxid(await this.call("sendrawtransaction", [rawTxHex]), "sendrawtransaction");
   }
 
-  async getTransactions(_address: string): Promise<ChainTransaction[]> {
-    // Would require a wallet import or a txindex; not implemented rather than
-    // faked, so no caller can mistake an empty array for "no history".
-    throw new ChainError(
-      "transaction history requires an imported descriptor wallet, which is not implemented",
-    );
+  /**
+   * Live fee estimates via `estimatesmartfee`.
+   *
+   * ─── Why the CONSERVATIVE mode ─────────────────────────────────────────
+   * Core offers two estimation modes. `ECONOMICAL` reacts quickly to a
+   * draining mempool and produces lower numbers; `CONSERVATIVE` uses a longer
+   * history and is more likely to be sufficient if conditions worsen.
+   *
+   * For a wallet, under-estimating is the worse error: a stuck transaction is
+   * a far worse experience than a few satoshis of overpayment, and RBF is the
+   * only way out. We ask for CONSERVATIVE deliberately.
+   *
+   * ─── Regtest has no estimates ──────────────────────────────────────────
+   * A private chain has no fee market and no history to estimate from, so
+   * Core returns errors for every target. That is correct behaviour, not a
+   * failure — the method returns a result with the fields absent and the
+   * caller falls back to static defaults.
+   */
+  async getFeeEstimates(): Promise<FeeEstimates> {
+    const targets: Array<[keyof FeeEstimates, number]> = [
+      ["high", 2],
+      ["medium", 6],
+      ["low", 144],
+    ];
+    const estimates: Record<string, number> = {};
+
+    for (const [label, blocks] of targets) {
+      try {
+        const result = (await this.call("estimatesmartfee", [blocks, "CONSERVATIVE"])) as
+          Record<string, unknown>;
+
+        // Core reports BTC per kvB. Convert to sat/vB with INTEGER arithmetic.
+        //
+        // The obvious float version is wrong, and wrong in the expensive
+        // direction: `(0.00002 * 1e8) / 1000` is 2.0000000000000004, which
+        // Math.ceil turns into 3 — a fee rate 50% above what the node
+        // recommended. This module already warns about float money arithmetic
+        // in btcToSatoshis; the same discipline applies here.
+        //
+        // btcToSatoshis works on the decimal string, so it yields exactly
+        // 2000n sat per kvB, and 2000n / 1000n is exactly 2n.
+        if (typeof result.feerate === "number" && result.feerate > 0) {
+          const satPerKvb = btcToSatoshis(result.feerate, `estimatesmartfee[${blocks}]`);
+          // Round UP to the next whole sat/vB: under-paying risks a stuck
+          // transaction, which is worse than a satoshi of overpayment.
+          const satPerVb = (satPerKvb + 999n) / 1000n;
+          if (satPerVb > 0n && satPerVb < 100_000n) {
+            estimates[label as string] = Math.max(1, Number(satPerVb));
+          }
+        }
+        // `errors` in the response means Core could not estimate that target.
+        // Absent is the honest answer; we do not substitute a guess.
+      } catch {
+        // A failing target is not a failing call. Others may still work.
+      }
+    }
+    return { ...estimates, source: this.name, fetchedAt: Date.now() };
+  }
+
+  /**
+   * Transaction history via a watch-only descriptor wallet.
+   *
+   * ─── Why this needs an import, unlike getUtxos ──────────────────────────
+   * `scantxoutset` sees the UTXO set — what is currently unspent. History is a
+   * different question: it includes outputs that have since been spent, and
+   * transactions where we were the sender. The UTXO set cannot answer it,
+   * because a spent output is simply gone.
+   *
+   * So this path does import descriptors, accepting the node-state mutation
+   * that `getUtxos` deliberately avoids. The import is confined to a
+   * separate, clearly-named watch-only wallet holding only `addr()`
+   * descriptors — no keys, no spending ability.
+   *
+   * ─── Rescan cost ────────────────────────────────────────────────────────
+   * `importdescriptors` with a timestamp triggers a rescan from that point. On
+   * regtest that is instant. On mainnet, `timestamp: 0` would rescan the
+   * entire chain and take hours, which is why `since` defaults to "now" and
+   * must be set deliberately.
+   */
+  async importAddressesForHistory(
+    addresses: readonly string[],
+    options: { walletName?: string; since?: number } = {},
+  ): Promise<void> {
+    const walletName = options.walletName ?? "veyra-watch";
+    const timestamp = options.since ?? "now";
+
+    if (addresses.length === 0) return;
+    if (addresses.length > 1000) {
+      throw new ChainError("refusing to import more than 1000 addresses at once");
+    }
+    for (const address of addresses) this.assertPlausibleAddress(address);
+
+    // Create the watch-only wallet if it does not exist. `disable_private_keys`
+    // is the important argument: this wallet can observe, never spend.
+    try {
+      await this.call("createwallet", [walletName, true, true, "", false, true, true]);
+    } catch (error) {
+      if (!/already exists|Database already/i.test((error as Error).message)) {
+        try {
+          await this.call("loadwallet", [walletName]);
+        } catch (loadError) {
+          if (!/already loaded/i.test((loadError as Error).message)) throw loadError;
+        }
+      }
+    }
+
+    const descriptors = addresses.map((address) => ({
+      desc: `addr(${address})`,
+      timestamp,
+      label: "veyra",
+    }));
+
+    const result = await this.callWallet(walletName, "importdescriptors", [descriptors]);
+    if (!Array.isArray(result)) throw new ChainError("importdescriptors returned no array");
+
+    for (const [i, entry] of result.entries()) {
+      const item = entry as Record<string, unknown>;
+      if (item.success !== true) {
+        const detail = (item.error as { message?: string } | undefined)?.message ?? "unknown";
+        throw new ChainError(`descriptor ${i} failed to import: ${String(detail).slice(0, 200)}`);
+      }
+    }
+  }
+
+  /**
+   * Transactions touching an imported address.
+   *
+   * Requires `importAddressesForHistory` to have been called first. Throws a
+   * clear error otherwise rather than returning an empty array — an empty
+   * history and an unconfigured wallet look identical to a caller, and
+   * "you have no transactions" is a damaging thing to say incorrectly.
+   */
+  async getTransactions(
+    address: string,
+    options: { walletName?: string } = {},
+  ): Promise<ChainTransaction[]> {
+    this.assertPlausibleAddress(address);
+    const walletName = options.walletName ?? "veyra-watch";
+
+    let raw: unknown;
+    try {
+      // count 500, skip 0, include_watchonly true.
+      raw = await this.callWallet(walletName, "listtransactions", ["*", 500, 0, true]);
+    } catch (error) {
+      if (/not found|Requested wallet does not exist/i.test((error as Error).message)) {
+        throw new ChainError(
+          `watch-only wallet '${walletName}' does not exist — call ` +
+            `importAddressesForHistory() before requesting history`,
+        );
+      }
+      throw error;
+    }
+    if (!Array.isArray(raw)) throw new ChainError("listtransactions returned no array");
+
+    // One transaction can produce several entries (one per matching output),
+    // so fold them together by txid and sum the amounts.
+    const byTxid = new Map<string, { net: bigint; confirmations: number; time?: number; fee?: bigint }>();
+
+    for (const entry of raw) {
+      const item = entry as Record<string, unknown>;
+      if (item.address !== address) continue;
+
+      const txid = validateTxid(item.txid, "listtransactions txid");
+      const amount = typeof item.amount === "number" ? item.amount : 0;
+      // `amount` is signed BTC: negative for a send. btcToSatoshis rejects
+      // negatives, so take the magnitude and reapply the sign.
+      const magnitude = btcToSatoshis(Math.abs(amount), "listtransactions amount");
+      const net = amount < 0 ? -magnitude : magnitude;
+
+      const existing = byTxid.get(txid);
+      const confirmations = normalizeConfirmations(item.confirmations);
+      const fee =
+        typeof item.fee === "number" && item.fee !== 0
+          ? btcToSatoshis(Math.abs(item.fee), "listtransactions fee")
+          : undefined;
+
+      byTxid.set(txid, {
+        net: (existing?.net ?? 0n) + net,
+        confirmations,
+        ...(typeof item.blocktime === "number" ? { time: item.blocktime } : {}),
+        ...(fee !== undefined ? { fee } : existing?.fee !== undefined ? { fee: existing.fee } : {}),
+      });
+    }
+
+    return [...byTxid.entries()].map(([txid, data]) => ({
+      txid,
+      confirmations: data.confirmations,
+      netValue: data.net,
+      direction: data.net > 0n ? ("received" as const) : data.net < 0n ? ("sent" as const) : ("internal" as const),
+      ...(data.time !== undefined ? { blockTime: data.time } : {}),
+      ...(data.fee !== undefined ? { fee: data.fee } : {}),
+    }));
   }
 
   // ── Regtest helpers ─────────────────────────────────────────────────────
@@ -352,8 +554,10 @@ export class BitcoinRpcChainSource implements ChainSource {
   /** Send BTC from the node's wallet to an address. Regtest only. */
   async fundAddress(walletName: string, address: string, satoshis: bigint): Promise<string> {
     this.assertRegtest("fundAddress");
-    const btc = (Number(satoshis) / 1e8).toFixed(8);
-    const result = await this.callWallet(walletName, "sendtoaddress", [address, btc]);
+    const result = await this.callWallet(walletName, "sendtoaddress", [
+      address,
+      satoshisToBtcString(satoshis),
+    ]);
     return validateTxid(result, "sendtoaddress");
   }
 

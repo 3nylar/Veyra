@@ -437,6 +437,110 @@ VEY-010), and the second where a path differed from the author's platform.
 
 ---
 
+## VEY-011 — Float arithmetic overcharged fees by up to 100%
+
+**Severity:** Medium (funds — overpayment, capped and non-catastrophic) ·
+**Found:** increment 11, by a test written at the same time as the code
+
+### Failure
+`expected 3 to be 2` — a fee estimate of 2 sat/vB was reported as 3.
+
+### Root cause
+Bitcoin Core reports fee rates in **BTC per kvB**. The conversion to sat/vB
+was written the obvious way:
+
+```js
+Math.ceil((feerate * 1e8) / 1000)
+```
+
+In IEEE 754, `(0.00002 * 1e8) / 1000` is **2.0000000000000004**, and
+`Math.ceil` promotes that to **3** — a 50% overcharge. `0.00001` is worse: the
+true value is 1, the computed value 2, a **100% overcharge**.
+
+These are ordinary fee rates, not contrived edge cases. Checked across six
+common values, two were wrong.
+
+The bug is doubly embarrassing in context: this same file already contains
+`btcToSatoshis`, written specifically to avoid float money arithmetic, with a
+comment explaining that `4.35 * 1e8` is `434999999.99999994`. I then wrote the
+identical mistake forty lines below it.
+
+### Fix
+Convert through the existing decimal-string path, then divide with BigInt:
+
+```js
+const satPerKvb = btcToSatoshis(result.feerate, …);   // exact: 2000n
+const satPerVb  = (satPerKvb + 999n) / 1000n;          // exact ceiling: 2n
+```
+
+Rounding up is deliberate — under-paying risks a stuck transaction, which is a
+far worse outcome than a satoshi of overpayment.
+
+### Regression test
+`bitcoin-rpc.test.ts` — *"REGRESSION (VEY-011): float conversion overcharges by
+up to 100%"* asserts seven common rates including both values the float path
+got wrong.
+
+### Lesson
+**Establishing a rule is not the same as following it.** The project had
+already identified float money arithmetic as a hazard, written a helper to
+avoid it, and documented why — and the bug still appeared in the same file,
+because the new code path did not *look* like currency conversion. It looked
+like unit conversion.
+
+The generalisable check: any expression combining a float with `1e8`,
+`Math.ceil`, or `Math.round` in a money path is suspect regardless of what it
+appears to be converting. Grep for the shape, not the intent.
+
+Worth noting how it was caught: the test asserted a specific expected value
+rather than a range. `toBeGreaterThan(0)` would have passed.
+
+---
+
+## VEY-012 — A Taproot address encoder accepted anyone-can-spend outputs
+
+**Severity:** Medium (funds — would create outputs anyone could take) ·
+**Found:** increment 12, by a test written alongside the code
+
+### Failure
+`expected [Function] to throw an error` — `p2trAddress()` happily encoded a
+20-byte output key.
+
+### Root cause
+`p2trAddress` delegated length validation to `encodeSegwitAddress`, which
+correctly implements BIP-350: witness programs may be **2 to 40 bytes** for
+version 1, because future upgrades may define other lengths.
+
+But a version-1 output that is not exactly 32 bytes **is not Taproot**. Under
+current consensus rules such an output is unencumbered — *anyone can spend it*.
+Encoding one produces an address that looks entirely valid, passes checksum
+validation, and gives the coins to whoever notices first.
+
+The generic validator was right; the Taproot-specific constraint simply was not
+its job, and I had assumed the layer below would catch it.
+
+### Fix
+`p2trAddress` now enforces exactly 32 bytes itself, with an error that states
+the consequence rather than only the rule:
+
+> `A version-1 output of any other length is spendable by anyone.`
+
+### Regression test
+`taproot.test.ts` — *"REFUSES a non-32-byte output key — such an output is
+anyone-can-spend"* checks lengths 2, 20, 31, 33 and 40, and confirms 32 passes.
+
+### Lesson
+**A general validator being correct does not mean a specific one is
+unnecessary.** BIP-350's range is right for what it validates; Taproot's
+constraint is narrower and lives a layer up. Delegating validation downward is
+only safe when the lower layer knows the same invariant — and here it
+deliberately did not, because its job was to remain open to future versions.
+
+The shape to watch for: a permissive check that exists to allow future
+extension, relied upon by a caller that needs a present-day restriction.
+
+---
+
 ## Findings that were NOT defects
 
 Recorded because their absence is itself informative.

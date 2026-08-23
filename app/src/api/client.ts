@@ -57,6 +57,25 @@ export interface TransactionReview {
   txid: string;
 }
 
+export interface HistoryEntry {
+  txid: string;
+  confirmations: number;
+  direction: "received" | "sent" | "internal" | null;
+  netValue: bigint | null;
+  fee: bigint | null;
+  blockHeight: number | null;
+  blockTime: number | null;
+}
+
+export interface FeeEstimates {
+  high: number;
+  medium: number;
+  low: number;
+  /** False means these are static defaults, not live network rates. */
+  isLive: boolean;
+  source: string;
+}
+
 export interface SecurityStatus {
   network: string;
   isMainnet: boolean;
@@ -175,6 +194,23 @@ export class VeyraApi {
 
   async security(): Promise<SecurityStatus> {
     return this.request("/wallet/security");
+  }
+
+  async history(): Promise<HistoryEntry[]> {
+    const raw = await this.request<{ transactions: Array<Record<string, unknown>> }>("/transactions");
+    return raw.transactions.map((t) => ({
+      txid: t.txid as string,
+      confirmations: t.confirmations as number,
+      direction: (t.direction as HistoryEntry["direction"]) ?? null,
+      netValue: t.netValue !== null ? BigInt(t.netValue as string) : null,
+      fee: t.fee !== null ? BigInt(t.fee as string) : null,
+      blockHeight: (t.blockHeight as number | null) ?? null,
+      blockTime: (t.blockTime as number | null) ?? null,
+    }));
+  }
+
+  async fees(): Promise<FeeEstimates> {
+    return this.request("/wallet/fees");
   }
 
   async sync(): Promise<{ utxos: number; addressesScanned: number }> {
