@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Every endpoint, with a console that sends real requests to your API." />
+    <title>API reference — Veyra API</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="assets/docs.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button class="menu-toggle" aria-label="Menu" aria-expanded="false">☰</button>
+      <a class="brand" href="introduction">
+        <span class="brand-mark">Veyra</span><span class="brand-kind">Docs</span>
+      </a>
+      <nav class="topnav">
+        <a href="api-reference">API reference</a>
+        <a href="changelog">Changelog</a>
+        <a href="https://github.com/3nylar/Veyra" rel="noopener noreferrer" target="_blank">GitHub</a>
+        <button class="theme-toggle" aria-label="Toggle theme">◐</button>
+      </nav>
+    </header>
+
+    <div class="layout">
+      <nav class="sidebar" aria-label="Documentation">
+      <div class="nav-group">
+        <h4>Get started</h4>
+        <a href="introduction">Introduction</a><a href="quickstart">Quickstart</a><a href="authentication">Authentication</a><a href="environments">Environments</a>
+      </div>
+      <div class="nav-group">
+        <h4>Core concepts</h4>
+        <a href="custody-model">The custody model</a><a href="transaction-lifecycle">Transaction lifecycle</a><a href="amounts">Amounts and precision</a><a href="errors">Errors</a><a href="rate-limits">Rate limits</a>
+      </div>
+      <div class="nav-group">
+        <h4>Guides</h4>
+        <a href="guide-receive">Guide: receive bitcoin</a><a href="guide-send">Guide: send bitcoin</a><a href="guide-sync">Guide: sync with a chain</a>
+      </div>
+      <div class="nav-group">
+        <h4>Reference</h4>
+        <a href="api-reference" class="current" aria-current="page">API reference</a><a href="changelog">Changelog</a>
+      </div></nav>
+
+      <main class="content">
+        <p class="eyebrow">Reference</p>
+        <h1>API reference</h1>
+        <p class="lede">Every endpoint, with a console that sends real requests to your API.</p>
+        
+
+  <div class="console">
+    <div class="console-row">
+      <label class="f"><span>API base URL</span><input id="baseUrl" value="http://127.0.0.1:3000" spellcheck="false" /></label>
+      <label class="f"><span>Bearer token</span><input id="token" type="password" placeholder="printed by npm run api" spellcheck="false" /></label>
+      <button class="run" data-run data-method="GET" data-path="/wallet">Test</button>
+    </div>
+    <p class="result">Kept in this browser session only. Never written to disk.</p>
+  </div>
+  <div class="callout" data-tone="warning" id="fileWarn" style="display:none">
+    <strong>Opened from the filesystem.</strong> Live requests will be blocked: a
+    <code>file://</code> page has origin <code>null</code>, which the API's CORS
+    allowlist excludes deliberately. Serve these docs with <code>npm run app</code>.
+  </div>
+
+<h2 id="health"><a class="anchor" href="#health" aria-label="Link to this section">#</a>Health</h2>
+
+    <article class="endpoint">
+      <button class="endpoint-head" aria-expanded="false">
+        <span class="method" data-m="GET">GET</span>
+        <span class="ep-path">/health</span>
+        <span class="ep-summary">Liveness</span>
+        <span class="ep-auth">public</span>
+      </button>
+      <div class="endpoint-body">
+        <p style="color:var(--muted);font-size:14px;margin-top:14px">Reachable without authentication, so it deliberately reports nothing else. Version, network, or balance here would be free reconnaissance.</p>
+        
+        
+        <h3>Response</h3><div class="code-block"><span class="code-lang">json</span><pre>{
+  <span class="tok-key">"status"</span>: <span class="tok-str">"ok"</span>
+}</pre></div>
+        <h3>Try it</h3>
+        <div class="console-row">
+          
+          
+          <button class="run" data-run data-method="GET" data-path="/health" data-auth="false">Send request</button>
+        </div>
+        <p class="result">Not sent yet.</p>
+      </div>
+    </article>
+
+<h2 id="wallet"><a class="anchor" href="#wallet" aria-label="Link to this section">#</a>Wallet</h2>
+
+    <article class="endpoint">
+      <button class="endpoint-head" aria-expanded="false">
+        <span class="method" data-m="GET">GET</span>
+        <span class="ep-path">/wallet</span>
+        <span class="ep-summary">Summary</span>
+        <span class="ep-auth">auth</span>
+      </button>
+      <div class="endpoint-body">
+        
+        
+        
+        <h3>Response</h3><div class="code-block"><span class="code-lang">json</span><pre>{
+  <span class="tok-key">"network"</span>: <span class="tok-str">"regtest"</span>,
+  <span class="tok-key">"derivationPath"</span>: <span class="tok-str">"m/84'/1'/0'"</span>,
+  <span class="tok-key">"fingerprint"</span>: <span class="tok-str">"854f45e9"</span>,
+  <span class="tok-key">"addressType"</span>: <span class="tok-str">"P2WPKH (BIP-84)"</span>,
+  <span class="tok-key">"gapLimit"</span>: <span class="tok-num">20</span>
+}</pre></div>
+        <h3>Try it</h3>
+        <div class="console-row">
+          
+          
+          <button class="run" data-run data-method="GET" data-path="/wallet" data-auth="true">Send request</button>
+        </div>
+        <p class="result">Not sent yet.</p>
+      </div>
+    </article>
+
+    <article class="endpoint">
+      <button class="endpoint-head" aria-expanded="false">
+        <span class="method" data-m="GET">GET</span>
+        <span class="ep-path">/wallet/address</span>
+        <span class="ep-summary">Current receive address</span>
+        <span class="ep-auth">auth</span>
+      </button>
+      <div class="endpoint-body">
+        
+        
+        
+        <h3>Response</h3><div class="code-block"><span class="code-lang">json</span><pre>{
+  <span class="tok-key">"address"</span>: <span class="tok-str">"bcrt1qcl3pgz…"</span>,
+  <span class="tok-key">"path"</span>: <span class="tok-str">"m/84'/1'/0'/0/0"</span>,
+  <span class="tok-key">"network"</span>: <span class="tok-str">"regtest"</span>
+}</pre></div>
+        <h3>Try it</h3>
+        <div class="console-row">
+          
+          
+          <button class="run" data-run data-method="GET" data-path="/wallet/address" data-auth="true">Send request</button>
+        </div>
+        <p class="result">Not sent yet.</p>
+      </div>
+    </article>
+
+    <article class="endpoint">
+      <button class="endpoint-head" aria-expanded="false">
+        <span class="method" data-m="POST">POST</span>
+        <span class="ep-path">/wallet/address/next</span>
+        <span class="ep-summary">Fresh receive address</span>
+        <span class="ep-auth">auth</span>
+      </button>
+      <div class="endpoint-body">
+        <p style="color:var(--muted);font-size:14px;margin-top:14px">Capped at the gap limit; the 21st unused address returns 422.</p>
+        
+        <h3>Request</h3><div class="code-block"><span class="code-lang">json</span><pre>{}</pre></div>
+        <h3>Response</h3><div class="code-block"><span class="code-lang">json</span><pre>{
+  <span class="tok-key">"address"</span>: <span class="tok-str">"bcrt1q…"</span>,
+  <span class="tok-key">"path"</span>: <span class="tok-str">"m/84'/1'/0'/0/1"</span>,
+  <span class="tok-key">"network"</span>: <span class="tok-str">"regtest"</span>
+}</pre></div>
+        <h3>Try it</h3>
+        <div class="console-row">
+          
+          <label class="f"><span>Body</span><textarea class="reqbody" spellcheck="false">{}</textarea></label>
+          <button class="run" data-run data-method="POST" data-path="/wallet/address/next" data-auth="true">Send request</button>
+        </div>
+        <p class="result">Not sent yet.</p>
+      </div>
+    </article>
+
+    <article class="endpoint">
+      <button class="endpoint-head" aria-expanded="false">
+        <span class="method" data-m="GET">GET</span>
+        <span class="ep-path">/wallet/balance</span>
+        <span class="ep-summary">Balance, broken into parts</span>
+        <span class="ep-auth">auth</span>
+      </button>
+      <div class="endpoint-body">
+        <p style="color:var(--muted);font-size:14px;margin-top:14px">Never one number. 'Your balance is X' when part of X is unconfirmed or frozen is a claim the user discovers is false when a send fails.</p>
+        
+        
+        <h3>Response</h3><div class="code-block"><span class="code-lang">json</span><pre>{
+  <span class="tok-key">"total"</span>: <span class="tok-str">"1500000"</span>,
+  <span class="tok-key">"spendable"</span>: <span class="tok-str">"1500000"</span>,
+  <span class="tok-key">"unconfirmed"</span>: <span class="tok-str">"0"</span>,
+  <span class="tok-key">"unavailable"</span>: <span class="tok-str">"0"</span>,
+  <span class="tok-key">"utxoCount"</span>: <span class="tok-num">2</span>
+}</pre></div>
+        <h3>Try it</h3>
+        <div class="console-row">
+          
+          
+          <button class="run" data-run data-method="GET" data-path="/wallet/balance" data-auth="true">Send request</button>
+        </div>
+        <p class="result">Not sent yet.</p>
+      </div>
+    </article>
+
+    <article class="endpoint">
+      <button class="endpoint-head" aria-expanded="false">
+        <span class="method" data-m="GET">GET</span>
+        <span class="ep-path">/wallet/utxos</span>
+        <span class="ep-summary">Unspent outputs</span>
+        <span class="ep-auth">auth</span>
+      </button>
+      <div class="endpoint-body">
+        <p style="color:var(--muted);font-size:14px;margin-top:14px">Derivation paths are omitted. Not secret in the way a key is, but they describe wallet structure and the client has no use for them — signing happens server-side.</p>
+        
+        
+        <h3>Response</h3><div class="code-block"><span class="code-lang">json</span><pre>{
+  <span class="tok-key">"utxos"</span>: [
+    {
+      <span class="tok-key">"txid"</span>: <span class="tok-str">"11…11"</span>,
+      <span class="tok-key">"vout"</span>: <span class="tok-num">0</span>,
+      <span class="tok-key">"value"</span>: <span class="tok-str">"1000000"</span>,
+      <span class="tok-key">"address"</span>: <span class="tok-str">"bcrt1q…"</span>,
+      <span class="tok-key">"confirmations"</span>: <span class="tok-num">6</span>,
+      <span class="tok-key">"frozen"</span>: <span class="tok-num">false</span>
+    }
+  ]
+}</pre></div>
+        <h3>Try it</h3>
+        <div class="console-row">
+          
+          
+          <button class="run" data-run data-method="GET" data-path="/wallet/utxos" data-auth="true">Send request</button>
+        </div>
+        <p class="result">Not sent yet.</p>
+      </div>
+    </article>
+
+    <article class="endpoint">
+      <button class="endpoint-head" aria-expanded="false">
+        <span class="method" data-m="GET">GET</span>
+        <span class="ep-path">/wallet/security</span>
+        <span class="ep-summary">Security state</span>
+        <span class="ep-auth">auth</span>
+      </button>
+      <div class="endpoint-body">
+        <p style="color:var(--muted);font-size:14px;margin-top:14px">Verifiable facts and warnings. No score — a number like '92% secure' implies a measurement nobody performed.</p>
+        
+        
+        <h3>Response</h3><div class="code-block"><span class="code-lang">json</span><pre>{
+  <span class="tok-key">"network"</span>: <span class="tok-str">"regtest"</span>,
+  <span class="tok-key">"isMainnet"</span>: <span class="tok-num">false</span>,
+  <span class="tok-key">"walletType"</span>: <span class="tok-str">"self-custodial HD (BIP-84)"</span>,
+  <span class="tok-key">"keysHeldBy"</span>: <span class="tok-str">"this server process, in memory only"</span>,
+  <span class="tok-key">"chainSource"</span>: <span class="tok-num">null</span>,
+  <span class="tok-key">"chainSourceIsThirdParty"</span>: <span class="tok-num">null</span>,
+  <span class="tok-key">"privacyWarning"</span>: <span class="tok-num">null</span>,
+  <span class="tok-key">"pendingTransactions"</span>: <span class="tok-num">0</span>,
+  <span class="tok-key">"warnings"</span>: [
+    "Private keys are held in this process's memory. …"
+  ]
+}</pre></div>
+        <h3>Try it</h3>
+        <div class="console-row">
+          
+          
+          <button class="run" data-run data-method="GET" data-path="/wallet/security" data-auth="true">Send request</button>
+        </div>
+        <p class="result">Not sent yet.</p>
+      </div>
+    </article>
+
+    <article class="endpoint">
+      <button class="endpoint-head" aria-expanded="false">
+        <span class="method" data-m="POST">POST</span>
+        <span class="ep-path">/wallet/sync</span>
+        <span class="ep-summary">Rescan from the chain source</span>
+        <span class="ep-auth">auth</span>
+      </button>
+      <div class="endpoint-body">
+        <p style="color:var(--muted);font-size:14px;margin-top:14px">Returns 422 if no chain source is configured.</p>
+        
+        <h3>Request</h3><div class="code-block"><span class="code-lang">json</span><pre>{}</pre></div>
+        <h3>Response</h3><div class="code-block"><span class="code-lang">json</span><pre>{
+  <span class="tok-key">"utxos"</span>: <span class="tok-num">2</span>,
+  <span class="tok-key">"addressesScanned"</span>: <span class="tok-num">46</span>
+}</pre></div>
+        <h3>Try it</h3>
+        <div class="console-row">
+          
+          <label class="f"><span>Body</span><textarea class="reqbody" spellcheck="false">{}</textarea></label>
+          <button class="run" data-run data-method="POST" data-path="/wallet/sync" data-auth="true">Send request</button>
+        </div>
+        <p class="result">Not sent yet.</p>
+      </div>
+    </article>
+
+<h2 id="transactions"><a class="anchor" href="#transactions" aria-label="Link to this section">#</a>Transactions</h2>
+<div class="callout" data-tone="teal"><strong>Two steps, and the second takes only an id.</strong>
+<code>send</code> cannot rebuild the transaction — see
+<a href="transaction-lifecycle">Transaction lifecycle</a>.</div>
+
+    <article class="endpoint">
+      <button class="endpoint-head" aria-expanded="false">
+        <span class="method" data-m="POST">POST</span>
+        <span class="ep-path">/transactions/prepare</span>
+        <span class="ep-summary">Build and sign; nothing is broadcast</span>
+        <span class="ep-auth">auth</span>
+      </button>
+      <div class="endpoint-body">
+        <p style="color:var(--muted);font-size:14px;margin-top:14px">Every spending guard runs before a signature exists: address validity for this network, the dust threshold, sufficient funds, and a fee-sanity ceiling.</p>
+        <h3>Parameters</h3><table><tr><th>Field</th><th>Type</th><th>Notes</th></tr><tr><td><code>to</code></td><td><code>string</code></td><td>Destination address. Must match this wallet's network.</td></tr><tr><td><code>amount</code></td><td><code>string | number</code></td><td>Satoshis. Must exceed the 294 sat dust threshold.</td></tr><tr><td><code>feeRate</code></td><td><code>number</code></td><td>sat/vB, between 1 and 10000.</td></tr><tr><td><code>strategy</code></td><td><code>string?</code></td><td>branch-and-bound · single-random-draw · largest-first</td></tr></table>
+        <h3>Request</h3><div class="code-block"><span class="code-lang">json</span><pre>{
+  <span class="tok-key">"to"</span>: <span class="tok-str">"bcrt1q…"</span>,
+  <span class="tok-key">"amount"</span>: <span class="tok-str">"100000"</span>,
+  <span class="tok-key">"feeRate"</span>: <span class="tok-num">5</span>
+}</pre></div>
+        <h3>Response</h3><div class="code-block"><span class="code-lang">json</span><pre>{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"3f2a4c8e…"</span>,
+  <span class="tok-key">"expiresAt"</span>: <span class="tok-str">"2026-08-20T12:34:56.000Z"</span>,
+  <span class="tok-key">"recipient"</span>: <span class="tok-str">"bcrt1q…"</span>,
+  <span class="tok-key">"amount"</span>: <span class="tok-str">"100000"</span>,
+  <span class="tok-key">"fee"</span>: <span class="tok-str">"705"</span>,
+  <span class="tok-key">"total"</span>: <span class="tok-str">"100705"</span>,
+  <span class="tok-key">"change"</span>: <span class="tok-str">"899295"</span>,
+  <span class="tok-key">"remainingBalance"</span>: <span class="tok-str">"899295"</span>,
+  <span class="tok-key">"feeRate"</span>: <span class="tok-num">5</span>,
+  <span class="tok-key">"vsize"</span>: <span class="tok-num">141</span>,
+  <span class="tok-key">"inputCount"</span>: <span class="tok-num">1</span>,
+  <span class="tok-key">"txid"</span>: <span class="tok-str">"a1b2c3…"</span>
+}</pre></div>
+        <h3>Try it</h3>
+        <div class="console-row">
+          
+          <label class="f"><span>Body</span><textarea class="reqbody" spellcheck="false">{
+  "to": "bcrt1q…",
+  "amount": "100000",
+  "feeRate": 5
+}</textarea></label>
+          <button class="run" data-run data-method="POST" data-path="/transactions/prepare" data-auth="true">Send request</button>
+        </div>
+        <p class="result">Not sent yet.</p>
+      </div>
+    </article>
+
+    <article class="endpoint">
+      <button class="endpoint-head" aria-expanded="false">
+        <span class="method" data-m="POST">POST</span>
+        <span class="ep-path">/transactions/send</span>
+        <span class="ep-summary">Broadcast by id</span>
+        <span class="ep-auth">auth</span>
+      </button>
+      <div class="endpoint-body">
+        <p style="color:var(--muted);font-size:14px;margin-top:14px">The id is consumed before the network call, so a retry after a timeout cannot double-broadcast.</p>
+        <h3>Parameters</h3><table><tr><th>Field</th><th>Type</th><th>Notes</th></tr><tr><td><code>id</code></td><td><code>string</code></td><td>From prepare. 32 hex characters.</td></tr></table>
+        <h3>Request</h3><div class="code-block"><span class="code-lang">json</span><pre>{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"3f2a4c8e…"</span>
+}</pre></div>
+        <h3>Response</h3><div class="code-block"><span class="code-lang">json</span><pre>{
+  <span class="tok-key">"txid"</span>: <span class="tok-str">"a1b2c3…"</span>,
+  <span class="tok-key">"broadcast"</span>: <span class="tok-num">true</span>
+}</pre></div>
+        <h3>Try it</h3>
+        <div class="console-row">
+          
+          <label class="f"><span>Body</span><textarea class="reqbody" spellcheck="false">{
+  "id": "3f2a4c8e…"
+}</textarea></label>
+          <button class="run" data-run data-method="POST" data-path="/transactions/send" data-auth="true">Send request</button>
+        </div>
+        <p class="result">Not sent yet.</p>
+      </div>
+    </article>
+
+    <article class="endpoint">
+      <button class="endpoint-head" aria-expanded="false">
+        <span class="method" data-m="GET">GET</span>
+        <span class="ep-path">/transactions/{id}</span>
+        <span class="ep-summary">Re-read a pending review</span>
+        <span class="ep-auth">auth</span>
+      </button>
+      <div class="endpoint-body">
+        <p style="color:var(--muted);font-size:14px;margin-top:14px">Identical 404 whether the id never existed, expired, or was already sent.</p>
+        
+        
+        <h3>Response</h3><div class="code-block"><span class="code-lang">json</span><pre>{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"3f2a4c8e…"</span>,
+  <span class="tok-key">"amount"</span>: <span class="tok-str">"100000"</span>,
+  <span class="tok-key">"fee"</span>: <span class="tok-str">"705"</span>,
+  <span class="tok-key">"total"</span>: <span class="tok-str">"100705"</span>
+}</pre></div>
+        <h3>Try it</h3>
+        <div class="console-row">
+          <label class="f"><span>id</span><input class="param" placeholder="prepared transaction id" spellcheck="false" /></label>
+          
+          <button class="run" data-run data-method="GET" data-path="/transactions/{id}" data-auth="true">Send request</button>
+        </div>
+        <p class="result">Not sent yet.</p>
+      </div>
+    </article>
+
+    <article class="endpoint">
+      <button class="endpoint-head" aria-expanded="false">
+        <span class="method" data-m="DELETE">DELETE</span>
+        <span class="ep-path">/transactions/{id}</span>
+        <span class="ep-summary">Cancel before sending</span>
+        <span class="ep-auth">auth</span>
+      </button>
+      <div class="endpoint-body">
+        <p style="color:var(--muted);font-size:14px;margin-top:14px">Releases the held coins. Nothing was broadcast, so there is nothing to undo.</p>
+        
+        
+        <h3>Response</h3><div class="code-block"><span class="code-lang">json</span><pre>{
+  <span class="tok-key">"cancelled"</span>: <span class="tok-num">true</span>
+}</pre></div>
+        <h3>Try it</h3>
+        <div class="console-row">
+          <label class="f"><span>id</span><input class="param" placeholder="prepared transaction id" spellcheck="false" /></label>
+          
+          <button class="run" data-run data-method="DELETE" data-path="/transactions/{id}" data-auth="true">Send request</button>
+        </div>
+        <p class="result">Not sent yet.</p>
+      </div>
+    </article>
+        
+    <nav class="pager">
+      <a class="pager-link" href="guide-sync"><span>Previous</span><strong>Guide: sync with a chain</strong></a>
+      <a class="pager-link next" href="changelog"><span>Next</span><strong>Changelog</strong></a>
+    </nav>
+      </main>
+
+      <aside class="toc">
+           <h5>On this page</h5>
+           <a href="#health">Health</a><a href="#wallet">Wallet</a><a href="#transactions">Transactions</a>
+         </aside>
+    </div>
+
+    <script src="assets/docs.js" type="module"></script>
+  </body>
+</html>

@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="What was built, in order, and what is still missing." />
+    <title>Changelog — Veyra API</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="assets/docs.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button class="menu-toggle" aria-label="Menu" aria-expanded="false">☰</button>
+      <a class="brand" href="introduction">
+        <span class="brand-mark">Veyra</span><span class="brand-kind">Docs</span>
+      </a>
+      <nav class="topnav">
+        <a href="api-reference">API reference</a>
+        <a href="changelog">Changelog</a>
+        <a href="https://github.com/3nylar/Veyra" rel="noopener noreferrer" target="_blank">GitHub</a>
+        <button class="theme-toggle" aria-label="Toggle theme">◐</button>
+      </nav>
+    </header>
+
+    <div class="layout">
+      <nav class="sidebar" aria-label="Documentation">
+      <div class="nav-group">
+        <h4>Get started</h4>
+        <a href="introduction">Introduction</a><a href="quickstart">Quickstart</a><a href="authentication">Authentication</a><a href="environments">Environments</a>
+      </div>
+      <div class="nav-group">
+        <h4>Core concepts</h4>
+        <a href="custody-model">The custody model</a><a href="transaction-lifecycle">Transaction lifecycle</a><a href="amounts">Amounts and precision</a><a href="errors">Errors</a><a href="rate-limits">Rate limits</a>
+      </div>
+      <div class="nav-group">
+        <h4>Guides</h4>
+        <a href="guide-receive">Guide: receive bitcoin</a><a href="guide-send">Guide: send bitcoin</a><a href="guide-sync">Guide: sync with a chain</a>
+      </div>
+      <div class="nav-group">
+        <h4>Reference</h4>
+        <a href="api-reference">API reference</a><a href="changelog" class="current" aria-current="page">Changelog</a>
+      </div></nav>
+
+      <main class="content">
+        <p class="eyebrow">Reference</p>
+        <h1>Changelog</h1>
+        <p class="lede">What was built, in order, and what is still missing.</p>
+        
+<div class="callout" data-tone="warning"><strong>Pre-release.</strong> No version is published, no
+endpoint is stable, and no compatibility is promised. The one thing that will
+not change is that no endpoint will ever return key material.</div>
+
+<div class="callout" data-tone="teal"><strong>2026-08-20 — consensus verified.</strong> Bitcoin Core
+accepted a transaction built and signed by this code, and computed the same
+txid for it.</div>
+
+<h2 id="unreleased"><a class="anchor" href="#unreleased" aria-label="Link to this section">#</a>Unreleased</h2>
+<h3>Added</h3>
+<ul>
+  <li><strong>Taproot (BIP-86 / BIP-341)</strong> — P2TR addresses matching all three published BIP-86 vectors, and Schnorr key-path signing. The sighash commits to <em>every</em> input's amount and script, closing a gap BIP-143 leaves open.</li>
+  <li><strong>RBF fee bumping</strong> — <code>POST /transactions/bump</code> replaces a stuck transaction, taking the extra fee from change and enforcing BIP-125 rules 2, 3 and 4 locally so the network's rejection message is never the first sign of a problem.</li>
+  <li><strong>Transaction history</strong> — <code>GET /transactions</code>, with direction and net value, folded so a send and its change are one entry.</li>
+  <li><strong>Live fee estimation</strong> — <code>GET /wallet/fees</code>, from <code>estimatesmartfee</code> or Esplora, with an <code>isLive</code> flag so a static fallback is never mistaken for a network rate.</li>
+  <li>Documentation site with a live request console.</li>
+  <li>CORS with an explicit origin allowlist.</li>
+  <li>Wallet interface: balance, receive, send flow, and security centre.</li>
+  <li>HTTP API with 63 security tests covering every §21 attack category.</li>
+  <li>Bitcoin Core RPC chain source and a regtest integration suite.</li>
+  <li>Esplora chain source with defensive response validation.</li>
+  <li>Wallet layer: gap-limit scan, coin selection, fee estimation, spending guards.</li>
+  <li>Transactions: BIP-143 sighash, ECDSA with RFC 6979, low-S enforcement.</li>
+  <li>BIP-39 mnemonics, BIP-32 derivation, BIP-84 addresses, Bech32/Bech32m.</li>
+  <li>Entropy, hashing, and key generation with source-tree security guards.</li>
+</ul>
+
+<h3>Fixed</h3>
+<p>Nine defects are recorded in <code>docs/ATTACKS.md</code> with root cause, fix, and lesson. Three were found by running on hardware and a runtime unlike the author's:</p>
+<ul>
+  <li><strong>VEY-001</strong> — a security guard silently stopped guarding on Windows, passing vacuously.</li>
+  <li><strong>VEY-008</strong> — the API was unreachable from any browser; 55 tests missed it because Node's <code>fetch</code> does not enforce CORS.</li>
+  <li><strong>VEY-009</strong> — a test asserted wall-clock time, so it measured the machine rather than the code.</li>
+  <li><strong>VEY-012</strong> — a Taproot address encoder accepted non-32-byte output keys, which under current consensus are spendable by anyone.</li>
+  <li><strong>VEY-011</strong> — float arithmetic overcharged fee estimates by up to 100%: <code>(0.00002 * 1e8) / 1000</code> is 2.0000000000000004, which <code>Math.ceil</code> makes 3.</li>
+</ul>
+
+<h2 id="verified"><a class="anchor" href="#verified" aria-label="Link to this section">#</a>Consensus verification — 2026-08-20</h2>
+<div class="callout" data-tone="teal"><strong>Bitcoin Core accepted a Veyra transaction.</strong>
+All 10 regtest integration tests passed against Bitcoin Core v29: Core accepted
+a transaction Veyra built and signed, computed an identical txid, rejected a
+tampered recipient, and confirmed change is spendable and a restored mnemonic
+finds real funds.</div>
+<p>
+  This was the last open item. Every other test in the project validates
+  against the specification as read; this one validates against the
+  implementation that defines it. Reproduce with <code>npm run test:regtest</code>.
+</p>
+
+<h2 id="missing"><a class="anchor" href="#missing" aria-label="Link to this section">#</a>Not yet built</h2>
+<table>
+  <tr><th>Missing</th><th>Consequence</th></tr>
+  <tr><td>Fee-bump persistence</td><td>Replaceable transactions are remembered in memory only; a restart loses the ability to bump them.</td></tr>
+  <tr><td>TLS</td><td>Plain HTTP; needs a reverse proxy beyond localhost.</td></tr>
+  <tr><td>Lightning</td><td>Not started. Will not be claimed until real infrastructure exists.</td></tr>
+</table>
+
+<h2 id="verification"><a class="anchor" href="#verification" aria-label="Link to this section">#</a>Verification status</h2>
+<table>
+  <tr><th>Component</th><th>Verified against</th></tr>
+  <tr><td>SHA-256</td><td>NIST FIPS 180-4 vectors</td></tr>
+  <tr><td>BIP-39</td><td>Trezor reference vectors</td></tr>
+  <tr><td>BIP-32</td><td>Published vectors 1–3, including the leading-zero case</td></tr>
+  <tr><td>BIP-84</td><td>Published mainnet addresses</td></tr>
+  <tr><td>Bech32 / Bech32m</td><td>BIP-173 and BIP-350, valid <em>and invalid</em> vectors</td></tr>
+  <tr><td>BIP-143</td><td>Official native-P2WPKH sighash</td></tr>
+  <tr><td><strong>Consensus</strong></td><td><strong>✅ Bitcoin Core v29, regtest, 2026-08-20</strong></td></tr>
+  <tr><td>Esplora client</td><td>Not verified against a live server</td></tr>
+  <tr><td>Mainnet</td><td>Never exercised end to end</td></tr>
+</table>
+        
+    <nav class="pager">
+      <a class="pager-link" href="api-reference"><span>Previous</span><strong>API reference</strong></a>
+      <span></span>
+    </nav>
+      </main>
+
+      <aside class="toc">
+           <h5>On this page</h5>
+           <a href="#unreleased">Unreleased</a><a href="#verified">Consensus verification — 2026-08-20</a><a href="#missing">Not yet built</a><a href="#verification">Verification status</a>
+         </aside>
+    </div>
+
+    <script src="assets/docs.js" type="module"></script>
+  </body>
+</html>

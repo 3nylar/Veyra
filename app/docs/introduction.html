@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="A self-custodial Bitcoin wallet, exposed as a JSON API." />
+    <title>Introduction — Veyra API</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="assets/docs.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button class="menu-toggle" aria-label="Menu" aria-expanded="false">☰</button>
+      <a class="brand" href="introduction">
+        <span class="brand-mark">Veyra</span><span class="brand-kind">Docs</span>
+      </a>
+      <nav class="topnav">
+        <a href="api-reference">API reference</a>
+        <a href="changelog">Changelog</a>
+        <a href="https://github.com/3nylar/Veyra" rel="noopener noreferrer" target="_blank">GitHub</a>
+        <button class="theme-toggle" aria-label="Toggle theme">◐</button>
+      </nav>
+    </header>
+
+    <div class="layout">
+      <nav class="sidebar" aria-label="Documentation">
+      <div class="nav-group">
+        <h4>Get started</h4>
+        <a href="introduction" class="current" aria-current="page">Introduction</a><a href="quickstart">Quickstart</a><a href="authentication">Authentication</a><a href="environments">Environments</a>
+      </div>
+      <div class="nav-group">
+        <h4>Core concepts</h4>
+        <a href="custody-model">The custody model</a><a href="transaction-lifecycle">Transaction lifecycle</a><a href="amounts">Amounts and precision</a><a href="errors">Errors</a><a href="rate-limits">Rate limits</a>
+      </div>
+      <div class="nav-group">
+        <h4>Guides</h4>
+        <a href="guide-receive">Guide: receive bitcoin</a><a href="guide-send">Guide: send bitcoin</a><a href="guide-sync">Guide: sync with a chain</a>
+      </div>
+      <div class="nav-group">
+        <h4>Reference</h4>
+        <a href="api-reference">API reference</a><a href="changelog">Changelog</a>
+      </div></nav>
+
+      <main class="content">
+        <p class="eyebrow">Get started</p>
+        <h1>Introduction</h1>
+        <p class="lede">A self-custodial Bitcoin wallet, exposed as a JSON API.</p>
+        
+<p>
+  Veyra is a Bitcoin wallet built from first principles as an educational
+  security project. This API is the boundary in front of it: balances,
+  addresses, and a two-step spending flow, over HTTP.
+</p>
+
+<div class="callout" data-tone="danger"><strong>Read this before anything else.</strong> This process holds private
+keys in memory. It speaks plain HTTP, has never been independently audited, and
+has never handled real funds. It exists to be inspected and attacked, not to
+secure savings.</div>
+
+<div class="callout" data-tone="teal"><strong>Consensus-verified.</strong> On 2026-08-20 Bitcoin Core
+accepted a transaction Veyra built and signed, on regtest, and computed an
+identical txid — so the serialisation is byte-exact and the signing path
+satisfies real consensus rules, not just a reading of them. Reproduce with
+<code>npm run test:regtest</code>.</div>
+
+<h2 id="the-rule"><a class="anchor" href="#the-rule" aria-label="Link to this section">#</a>The one rule that shapes this API</h2>
+<p>
+  <strong>The wallet holds the keys, and nothing above it can reach them.</strong>
+</p>
+<p>
+  There is no endpoint that returns a private key, a seed, or a mnemonic. Not
+  guarded, not admin-only, not behind a flag — <em>absent</em>. The most
+  reliable way to guarantee an endpoint cannot leak a secret is for the code
+  path not to exist, and a test asserts by reflection that the service class
+  has no method whose name suggests otherwise.
+</p>
+<p>
+  That has a consequence you will feel immediately: <strong>signing happens
+  server-side</strong>. You do not receive an unsigned transaction to sign
+  yourself. The trade-off is that this process is a custodian of your keys for
+  as long as it runs, which is why it binds to localhost and why the security
+  page says so in the first paragraph.
+</p>
+
+<h2 id="architecture"><a class="anchor" href="#architecture" aria-label="Link to this section">#</a>Architecture</h2>
+<div class="diagram">
+<svg viewBox="0 0 760 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Browser to API to wallet core to chain source">
+  <defs><marker id="a" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="currentColor" opacity=".5"/></marker></defs>
+  <g fill="none" stroke="currentColor" stroke-opacity=".18">
+    <rect x="20" y="24" width="180" height="62" rx="8"/>
+    <rect x="20" y="139" width="180" height="62" rx="8"/>
+    <rect x="20" y="254" width="180" height="62" rx="8"/>
+    <rect x="540" y="139" width="196" height="62" rx="8"/>
+    <rect x="540" y="254" width="196" height="62" rx="8"/>
+  </g>
+  <g fill="currentColor" font-family="IBM Plex Sans, sans-serif" font-size="13" font-weight="600">
+    <text x="36" y="50">Browser UI</text><text x="36" y="165">API</text>
+    <text x="36" y="280">Wallet core</text><text x="556" y="165">Chain source</text>
+    <text x="556" y="280">Bitcoin network</text>
+  </g>
+  <g fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace" font-size="11">
+    <text x="36" y="68">holds no keys</text><text x="36" y="183">auth · limits · validation</text>
+    <text x="36" y="298">seed · keys · signing</text><text x="556" y="183">bitcoind or Esplora</text>
+    <text x="556" y="298">regtest / testnet</text>
+    <text x="120" y="116">HTTP + bearer token</text><text x="120" y="231">in-process call</text>
+    <text x="250" y="276">sync · broadcast</text>
+  </g>
+  <g stroke="currentColor" stroke-opacity=".45" stroke-width="1.2" marker-end="url(#a)">
+    <line x1="110" y1="88" x2="110" y2="135"/><line x1="110" y1="203" x2="110" y2="250"/>
+    <line x1="202" y1="285" x2="536" y2="285"/><line x1="638" y1="250" x2="638" y2="205"/>
+  </g>
+  <rect x="8" y="242" width="204" height="86" rx="10" fill="none" stroke="#14b8a6" stroke-dasharray="4 4" opacity=".6"/>
+  <text x="14" y="238" fill="#14b8a6" font-family="IBM Plex Mono, monospace" font-size="10" letter-spacing="1">SECRECY BOUNDARY</text>
+</svg>
+</div>
+
+<h2 id="what-you-get"><a class="anchor" href="#what-you-get" aria-label="Link to this section">#</a>What you get</h2>
+<ul>
+  <li><strong>Addresses</strong> derived from a BIP-84 tree, fresh on request, capped at the gap limit.</li>
+  <li><strong>Balances</strong> broken into spendable, unconfirmed, and unavailable — never one number that might be a lie.</li>
+  <li><strong>A two-step spend</strong>: prepare returns a signed transaction and a review; send broadcasts it by id, and cannot alter it.</li>
+  <li><strong>Coin selection</strong> that prefers changeless transactions, with a documented privacy rationale.</li>
+  <li><strong>Chain sync</strong> against your own <code>bitcoind</code>, or an Esplora instance if you accept the privacy cost.</li>
+</ul>
+
+<h2 id="conventions"><a class="anchor" href="#conventions" aria-label="Link to this section">#</a>Two conventions to read before you write code</h2>
+<p>
+  <strong>Amounts are strings, in satoshis.</strong> <code>"100000"</code>, not
+  <code>0.001</code>. JSON numbers are IEEE doubles and lose integer precision
+  above 2<sup>53</sup>. Bitcoin's supply is 2.1×10<sup>15</sup> satoshis — under
+  that ceiling, but not by a margin worth being relaxed about. Requests accept a
+  number or a string; responses are always strings.
+</p>
+<p>
+  <strong>A prepared transaction expires in five minutes.</strong> It holds
+  specific coins and a fee rate that ages. If you show a user a review and they
+  go and make a cup of tea, handle the 404.
+</p>
+
+<h2 id="start"><a class="anchor" href="#start" aria-label="Link to this section">#</a>Start here</h2>
+<p>Get a token, make a call, and send a regtest transaction: <a href="quickstart"><strong>Quickstart →</strong></a></p>
+        
+    <nav class="pager">
+      <span></span>
+      <a class="pager-link next" href="quickstart"><span>Next</span><strong>Quickstart</strong></a>
+    </nav>
+      </main>
+
+      <aside class="toc">
+           <h5>On this page</h5>
+           <a href="#the-rule">The one rule that shapes this API</a><a href="#architecture">Architecture</a><a href="#what-you-get">What you get</a><a href="#conventions">Two conventions to read before you write code</a><a href="#start">Start here</a>
+         </aside>
+    </div>
+
+    <script src="assets/docs.js" type="module"></script>
+  </body>
+</html>

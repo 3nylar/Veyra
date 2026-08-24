@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="From nothing to a broadcast transaction on your own private chain." />
+    <title>Quickstart — Veyra API</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="assets/docs.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button class="menu-toggle" aria-label="Menu" aria-expanded="false">☰</button>
+      <a class="brand" href="introduction">
+        <span class="brand-mark">Veyra</span><span class="brand-kind">Docs</span>
+      </a>
+      <nav class="topnav">
+        <a href="api-reference">API reference</a>
+        <a href="changelog">Changelog</a>
+        <a href="https://github.com/3nylar/Veyra" rel="noopener noreferrer" target="_blank">GitHub</a>
+        <button class="theme-toggle" aria-label="Toggle theme">◐</button>
+      </nav>
+    </header>
+
+    <div class="layout">
+      <nav class="sidebar" aria-label="Documentation">
+      <div class="nav-group">
+        <h4>Get started</h4>
+        <a href="introduction">Introduction</a><a href="quickstart" class="current" aria-current="page">Quickstart</a><a href="authentication">Authentication</a><a href="environments">Environments</a>
+      </div>
+      <div class="nav-group">
+        <h4>Core concepts</h4>
+        <a href="custody-model">The custody model</a><a href="transaction-lifecycle">Transaction lifecycle</a><a href="amounts">Amounts and precision</a><a href="errors">Errors</a><a href="rate-limits">Rate limits</a>
+      </div>
+      <div class="nav-group">
+        <h4>Guides</h4>
+        <a href="guide-receive">Guide: receive bitcoin</a><a href="guide-send">Guide: send bitcoin</a><a href="guide-sync">Guide: sync with a chain</a>
+      </div>
+      <div class="nav-group">
+        <h4>Reference</h4>
+        <a href="api-reference">API reference</a><a href="changelog">Changelog</a>
+      </div></nav>
+
+      <main class="content">
+        <p class="eyebrow">Get started</p>
+        <h1>Quickstart</h1>
+        <p class="lede">From nothing to a broadcast transaction on your own private chain.</p>
+        
+<p>
+  Everything below runs on <strong>regtest</strong> — a private Bitcoin network
+  where you mine blocks on demand and the coins are worthless. It runs the same
+  consensus code as mainnet, which is what makes it a real test rather than a
+  simulation.
+</p>
+
+<h2 id="run"><a class="anchor" href="#run" aria-label="Link to this section">#</a>1. Start the API</h2>
+<div class="code-block"><span class="code-lang">powershell</span><pre>$env:VEYRA_NETWORK = <span class="tok-str">"regtest"</span>
+npm run api</pre></div>
+<p>It prints a token and, if no mnemonic was supplied, a freshly generated one:</p>
+<div class="code-block"><span class="code-lang">text</span><pre>Veyra API — regtest
+  listening   http://127.0.0.1:3000
+  wallet      m/84'/1'/0'  (854f45e9)
+
+  API token (generated, shown once):
+    9f2c4e...</pre></div>
+
+<div class="callout" data-tone="warning">The mnemonic is shown <strong>once</strong>. There is no
+<code>getMnemonic()</code> and no endpoint that returns it. A copy the wallet
+can retrieve is a copy an attacker can retrieve.</div>
+
+<h2 id="call"><a class="anchor" href="#call" aria-label="Link to this section">#</a>2. Make a call</h2>
+<div class="code-block"><span class="code-lang">powershell</span><pre>curl http://127.0.0.1:3000/health
+
+curl -H <span class="tok-str">"Authorization: Bearer &lt;token&gt;"</span> http://127.0.0.1:3000/wallet</pre></div>
+
+<h2 id="address"><a class="anchor" href="#address" aria-label="Link to this section">#</a>3. Get an address</h2>
+<div class="code-block"><span class="code-lang">json</span><pre><span class="tok-key">"address"</span>: <span class="tok-str">"bcrt1qcl3pgzqcez3wwyp8n4am48qt55y99n6lk439d8"</span>,
+<span class="tok-key">"path"</span>:    <span class="tok-str">"m/84'/1'/0'/0/0"</span></pre></div>
+
+<h2 id="fund"><a class="anchor" href="#fund" aria-label="Link to this section">#</a>4. Fund it and sync</h2>
+<p>With a regtest node running (see <a href="environments">Environments</a>):</p>
+<div class="code-block"><span class="code-lang">powershell</span><pre>$cli = <span class="tok-str">"C:\Program Files\Bitcoin\daemon\bitcoin-cli.exe"</span>
+&amp; $cli -regtest -rpcwallet=veyra-test sendtoaddress &lt;address&gt; 0.01
+&amp; $cli -regtest generatetoaddress 1 &lt;any-address&gt;</pre></div>
+<div class="code-block"><span class="code-lang">powershell</span><pre>curl -X POST -H <span class="tok-str">"Authorization: Bearer &lt;token&gt;"</span> http://127.0.0.1:3000/wallet/sync</pre></div>
+
+<h2 id="send"><a class="anchor" href="#send" aria-label="Link to this section">#</a>5. Send</h2>
+<p>Two calls. The first builds and signs; nothing is broadcast.</p>
+<div class="code-block"><span class="code-lang">powershell</span><pre>curl -X POST http://127.0.0.1:3000/transactions/prepare \
+  -H <span class="tok-str">"Authorization: Bearer &lt;token&gt;"</span> \
+  -H <span class="tok-str">"Content-Type: application/json"</span> \
+  -d <span class="tok-str">'{"to":"bcrt1q...","amount":"100000","feeRate":5}'</span></pre></div>
+<p>Read the review, then broadcast <em>that exact transaction</em> by id:</p>
+<div class="code-block"><span class="code-lang">powershell</span><pre>curl -X POST http://127.0.0.1:3000/transactions/send \
+  -H <span class="tok-str">"Authorization: Bearer &lt;token&gt;"</span> \
+  -H <span class="tok-str">"Content-Type: application/json"</span> \
+  -d <span class="tok-str">'{"id":"3f2a..."}'</span></pre></div>
+
+<h2 id="ui"><a class="anchor" href="#ui" aria-label="Link to this section">#</a>6. Or use the interface</h2>
+<div class="code-block"><span class="code-lang">powershell</span><pre>npm run app   <span class="tok-com"># http://127.0.0.1:5173</span></pre></div>
+<p>Paste the token into the connect screen. These docs are served alongside it.</p>
+        
+    <nav class="pager">
+      <a class="pager-link" href="introduction"><span>Previous</span><strong>Introduction</strong></a>
+      <a class="pager-link next" href="authentication"><span>Next</span><strong>Authentication</strong></a>
+    </nav>
+      </main>
+
+      <aside class="toc">
+           <h5>On this page</h5>
+           <a href="#run">1. Start the API</a><a href="#call">2. Make a call</a><a href="#address">3. Get an address</a><a href="#fund">4. Fund it and sync</a><a href="#send">5. Send</a><a href="#ui">6. Or use the interface</a>
+         </aside>
+    </div>
+
+    <script src="assets/docs.js" type="module"></script>
+  </body>
+</html>

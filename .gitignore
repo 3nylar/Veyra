@@ -15,7 +15,6 @@ app/docs/*.html
 .env
 .env.*
 !.env.example
-.env*
 *.mnemonic
 *.seed
 seed.txt
@@ -39,5 +38,3 @@ Thumbs.db
 .vscode
 .idea
 *.swp
-
-gitignore.txt
