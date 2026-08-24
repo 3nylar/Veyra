@@ -9,8 +9,15 @@
                           └── depends on nothing in this repository
 ```
 
-`core/` must never import from `api/` or `app/`. That is what makes it testable
-without a server and portable into a mobile UI unchanged.
+`core/` must never import from `api/` or `app/`, and must not use Node-only or
+DOM-only APIs. That is what makes it testable without a server and genuinely
+portable — it runs unchanged in Node, a browser, and React Native.
+
+Both halves are **enforced by source scans**, not by convention:
+`tests/cryptography/portability.test.ts` fails the build on any `node:` import,
+`Buffer`, or DOM global. That guard exists because the portability claim sat in
+this document for months while being false — see [ATTACKS.md](ATTACKS.md)
+VEY-014.
 
 Within `core/`, dependencies point downward only:
 

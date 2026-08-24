@@ -21,6 +21,8 @@ app/docs/*.html
 seed.txt
 mnemonic.txt
 wallet-backup*
+*.keystore
+keystore.json
 *.key
 *.pem
 

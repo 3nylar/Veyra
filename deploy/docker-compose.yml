@@ -1,0 +1,30 @@
+# Local watch-only stack, for trying the hosted shape before deploying it.
+#
+#   VEYRA_XPUB=tpub... VEYRA_API_TOKEN=$(openssl rand -hex 32) \
+#     docker compose -f deploy/docker-compose.yml up
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      VEYRA_NETWORK: ${VEYRA_NETWORK:-testnet}
+      VEYRA_WATCH_ONLY: "true"
+      VEYRA_XPUB: ${VEYRA_XPUB:?an account xpub is required}
+      VEYRA_API_TOKEN: ${VEYRA_API_TOKEN:?a token is required}
+      VEYRA_ESPLORA_URL: ${VEYRA_ESPLORA_URL:-}
+      VEYRA_ALLOWED_ORIGINS: ${VEYRA_ALLOWED_ORIGINS:-http://localhost:5173}
+      VEYRA_HOST: 0.0.0.0
+    # Bound to localhost even here. Exposing 0.0.0.0 on a laptop puts the API
+    # on every network the machine is attached to.
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

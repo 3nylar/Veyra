@@ -13,7 +13,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
-import { ApiError, toApiError, notFound, badRequest } from "./errors.js";
+import { ApiError, toApiError, notFound, badRequest, unprocessable } from "./errors.js";
 import {
   authenticate, RateLimiter, callerKey, readJsonBody,
   type AuthConfig, type RateLimitConfig,
@@ -22,10 +22,31 @@ import {
   asObject, rejectUnknownKeys, requireAddress, requireSatoshis,
   requireNumber, optionalEnum, requireId, requireString,
 } from "./validation.js";
-import { WalletService } from "./services/walletService.js";
+import type { WalletService } from "./services/walletService.js";
+import type { WatchOnlyService } from "./services/watchOnlyService.js";
+
+/**
+ * Either service shape.
+ *
+ * A union rather than a cast: the two deployments genuinely differ, and
+ * `as never` in the entry point hid that from the type checker rather than
+ * describing it. The optional members below are exactly the operations one
+ * service has and the other does not.
+ */
+type AnyWalletService = WalletService | WatchOnlyService;
+
+/** Present only on the signing service. */
+function asSigningService(service: AnyWalletService): WalletService | null {
+  return "bumpFee" in service ? (service as WalletService) : null;
+}
+
+/** Present only on the watch-only service. */
+function asWatchOnlyService(service: AnyWalletService): WatchOnlyService | null {
+  return "broadcast" in service ? (service as WatchOnlyService) : null;
+}
 
 export interface ServerConfig {
-  readonly service: WalletService;
+  readonly service: AnyWalletService;
   readonly auth: AuthConfig;
   /**
    * Origins permitted to call this API from a browser.
@@ -104,8 +125,10 @@ export function createApiServer(config: ServerConfig): Server {
     {
       method: "POST", segments: ["transactions", "bump"],
       handler: (_request, body) => {
+        const signing = asSigningService(service);
+        if (!signing) throw unprocessable("This server is watch-only and cannot sign a replacement.");
         rejectUnknownKeys(body, ["txid", "feeRate"]);
-        return service.bumpFee(
+        return signing.bumpFee(
           requireString(body, "txid", { maxLength: 64, pattern: /^[a-f0-9]{64}$/ }),
           requireNumber(body, "feeRate", { min: 1, max: 10_000 }),
         );
@@ -137,20 +160,51 @@ export function createApiServer(config: ServerConfig): Server {
     {
       method: "POST", segments: ["transactions", "send"],
       handler: async (_request, body) => {
+        const signing = asSigningService(service);
+        if (!signing) {
+          throw unprocessable(
+            "This server is watch-only and cannot sign. Sign the PSBT from " +
+              "/transactions/prepare yourself, then POST the signed hex to " +
+              "/transactions/broadcast.",
+          );
+        }
         // ONLY an id. No amount, no recipient, no fee — there is no parameter
         // through which the broadcast could differ from what was reviewed.
         rejectUnknownKeys(body, ["id"]);
-        return service.send(requireId(body, "id"));
+        return signing.send(requireId(body, "id"));
+      },
+    },
+    {
+      method: "POST", segments: ["transactions", "broadcast"],
+      handler: async (_request, body) => {
+        const watch = asWatchOnlyService(service);
+        if (!watch) {
+          throw unprocessable(
+            "This server signs its own transactions. Use /transactions/send with a prepared id.",
+          );
+        }
+        rejectUnknownKeys(body, ["hex"]);
+        // 400 KB is the standard transaction size limit; the hex is twice
+        // that. Bounded so a hostile client cannot stream indefinitely.
+        return watch.broadcast(
+          requireString(body, "hex", { maxLength: 800_000, pattern: /^[0-9a-fA-F]+$/ }),
+        );
       },
     },
     {
       method: "GET", segments: ["transactions", ":id"],
-      handler: (_request, _body, params) => service.pendingTransaction(params.id!),
+      handler: (_request, _body, params) => {
+        const signing = asSigningService(service);
+        if (!signing) throw notFound(`no pending transaction ${params.id}`);
+        return signing.pendingTransaction(params.id!);
+      },
     },
     {
       method: "DELETE", segments: ["transactions", ":id"],
       handler: (_request, _body, params) => {
-        service.cancel(params.id!);
+        const signing = asSigningService(service);
+        if (!signing) throw notFound(`no pending transaction ${params.id}`);
+        signing.cancel(params.id!);
         return { cancelled: true };
       },
     },

@@ -1,0 +1,11 @@
+node_modules
+app/dist
+app/dist-site
+app/docs/*.html
+.git
+.env
+.env.*
+*.log
+tests
+docs
+scripts

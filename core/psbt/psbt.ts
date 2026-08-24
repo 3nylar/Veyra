@@ -63,7 +63,7 @@
 
 import { ByteWriter, ByteReader, SerializationError } from "../bitcoin/serialization.js";
 import { Transaction, TxInput, TxOutput } from "../transactions/transaction.js";
-import { bytesToHex, hexToBytes, concatBytes } from "../crypto/bytes.js";
+import { bytesToHex, hexToBytes, concatBytes, bytesToBase64, base64ToBytes } from "../crypto/bytes.js";
 import { VeyraError } from "../errors/index.js";
 
 export class PsbtError extends VeyraError {
@@ -511,7 +511,7 @@ export class Psbt {
 
   /** Base64, the form PSBTs are normally exchanged in. */
   toBase64(): string {
-    return Buffer.from(this.serialize()).toString("base64");
+    return bytesToBase64(this.serialize());
   }
 
   toHex(): string {
@@ -580,7 +580,7 @@ export class Psbt {
     if (!/^[A-Za-z0-9+/]*={0,2}$/.test(text.trim())) {
       throw new PsbtError("not valid base64");
     }
-    return Psbt.fromBytes(new Uint8Array(Buffer.from(text.trim(), "base64")));
+    return Psbt.fromBytes(base64ToBytes(text));
   }
 
   static fromHex(hex: string): Psbt {
