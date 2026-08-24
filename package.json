@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Veyra \u2014 a self-custodial Bitcoin wallet built as a cryptography learning laboratory.",
+  "description": "Veyra — a self-custodial Bitcoin wallet built as a cryptography learning laboratory.",
   "license": "MIT",
   "engines": {
     "node": ">=20"
@@ -39,6 +39,6 @@
     "@types/react-dom": "^19.2.4",
     "tsx": "^4.23.12",
     "typescript": "^5.6.0",
-    "vitest": "^2.1.0"
+    "vitest": "^4.1.11"
   }
 }
