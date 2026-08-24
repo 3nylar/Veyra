@@ -35,6 +35,24 @@ function buildChainSource(network: string): ChainSource | undefined {
 
 async function main(): Promise<void> {
   const network = networkByName(env("VEYRA_NETWORK") ?? "regtest");
+  const watchOnly = env("VEYRA_WATCH_ONLY") === "true" || env("VEYRA_XPUB") !== undefined;
+
+  // ── The hosting rule ──────────────────────────────────────────────────
+  // A hosted process holding a seed is a custodial service whether or not
+  // anyone calls it that: compromise of the host is total loss. Refusing the
+  // combination outright is the only way to keep that from happening by
+  // accident — through a copied .env, a leftover variable, or a container
+  // image that ends up in a registry.
+  if (watchOnly && env("VEYRA_MNEMONIC")) {
+    throw new Error(
+      "VEYRA_WATCH_ONLY is set but VEYRA_MNEMONIC is also present. A watch-only " +
+        "deployment must hold no seed — remove VEYRA_MNEMONIC, or unset " +
+        "VEYRA_WATCH_ONLY if you intend to run a signing wallet locally.",
+    );
+  }
+  if (watchOnly && !env("VEYRA_XPUB")) {
+    throw new Error("VEYRA_WATCH_ONLY requires VEYRA_XPUB (an account-level extended public key)");
+  }
 
   // Refuse mainnet without an explicit, deliberate opt-in. Starting a
   // key-holding server against real funds must never be the result of a
@@ -45,6 +63,10 @@ async function main(): Promise<void> {
       "and has not been audited. Set VEYRA_I_UNDERSTAND_MAINNET_RISK=yes only " +
       "if you accept total loss of any funds involved.",
     );
+  }
+
+  if (watchOnly) {
+    return startWatchOnly(network);
   }
 
   const mnemonic = env("VEYRA_MNEMONIC");
@@ -101,6 +123,52 @@ async function main(): Promise<void> {
       console.log(`      keys and speaks plain HTTP. Put TLS in front of it.`);
     }
     console.log();
+  });
+}
+
+/**
+ * Start in watch-only mode.
+ *
+ * The process holds an xpub and nothing else. It can show balances and build
+ * unsigned PSBTs; signing happens wherever the seed lives.
+ */
+async function startWatchOnly(network: ReturnType<typeof networkByName>): Promise<void> {
+  const { WatchOnlyWallet } = await import("../../core/wallet/watchOnly.js");
+  const { WatchOnlyService } = await import("./services/watchOnlyService.js");
+
+  const wallet = WatchOnlyWallet.fromExtendedPublicKey(env("VEYRA_XPUB")!, network);
+  const chain = buildChainSource(network.name);
+  const service = new WatchOnlyService(wallet, chain);
+
+  const token = env("VEYRA_API_TOKEN") ?? generateApiToken();
+  const port = Number(env("VEYRA_PORT") ?? 3000);
+  const host = env("VEYRA_HOST") ?? "127.0.0.1";
+
+  const extraOrigins = env("VEYRA_ALLOWED_ORIGINS")
+    ?.split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+
+  const server = createApiServer({
+    service,
+    auth: { token },
+    ...(extraOrigins ? { allowedOrigins: extraOrigins } : {}),
+    log: (level, message) => console.error(`[${level}] ${message}`),
+  });
+
+  server.listen(port, host, () => {
+    console.log(`\nVeyra API — ${network.name} — WATCH-ONLY`);
+    console.log(`  listening   http://${host}:${port}`);
+    console.log(`  watching    ${wallet.path}  (${wallet.fingerprint})`);
+    console.log(`  chain       ${chain?.name ?? "none — balances will be empty"}`);
+    console.log(`  can sign    NO — this process holds no private key`);
+    if (!env("VEYRA_API_TOKEN")) {
+      console.log(`\n  API token (generated, shown once):\n    ${token}`);
+    }
+    console.log(
+      `\n  This server can see every address and balance in the account, ` +
+        `\n  but cannot spend. Signing happens wherever the seed lives.\n`,
+    );
   });
 }
 

@@ -67,7 +67,7 @@ import { ExtendedKey, HARDENED_OFFSET } from "../derivation/bip32.js";
 import { encodeSegwitAddress, decodeSegwitAddress } from "./bech32.js";
 import type { Network } from "../bitcoin/networks.js";
 import { DEFAULT_NETWORK } from "../bitcoin/networks.js";
-import { concatBytes } from "../crypto/bytes.js";
+import { concatBytes, bytesToHex } from "../crypto/bytes.js";
 import { VeyraError } from "../errors/index.js";
 
 /** BIP-84's fixed purpose field. */
@@ -214,6 +214,22 @@ export class Bip84Account {
     this.account = account;
   }
 
+  /**
+   * Build directly from an account-level node.
+   *
+   * The path a watch-only wallet takes: it holds an account xpub and has no
+   * master to derive from. Kept separate from `fromMasterKey` so the depth
+   * expectation is explicit — a node from the wrong level derives addresses
+   * nobody else will find, which is indistinguishable from lost funds.
+   */
+  static fromAccountNode(
+    node: ExtendedKey,
+    network: Network = DEFAULT_NETWORK,
+    account = 0,
+  ): Bip84Account {
+    return new Bip84Account(node, network, account);
+  }
+
   /** Derive the account node from a master key. */
   static fromMasterKey(
     master: ExtendedKey,
@@ -243,7 +259,7 @@ export class Bip84Account {
       index,
       chain,
       publicKey: publicKey.toHex(),
-      scriptPubKey: Buffer.from(p2wpkhScriptPubKey(publicKey)).toString("hex"),
+      scriptPubKey: bytesToHex(p2wpkhScriptPubKey(publicKey)),
       network: this.network.name,
     };
 

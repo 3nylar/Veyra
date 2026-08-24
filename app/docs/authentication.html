@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="One bearer token. No sessions, no cookies, no refresh flow." />
+    <title>Authentication — Veyra API</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="assets/docs.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button class="menu-toggle" aria-label="Menu" aria-expanded="false">☰</button>
+      <a class="brand" href="introduction">
+        <span class="brand-mark">Veyra</span><span class="brand-kind">Docs</span>
+      </a>
+      <nav class="topnav">
+        <a href="api-reference">API reference</a>
+        <a href="changelog">Changelog</a>
+        <a href="https://github.com/3nylar/Veyra" rel="noopener noreferrer" target="_blank">GitHub</a>
+        <button class="theme-toggle" aria-label="Toggle theme">◐</button>
+      </nav>
+    </header>
+
+    <div class="layout">
+      <nav class="sidebar" aria-label="Documentation">
+      <div class="nav-group">
+        <h4>Get started</h4>
+        <a href="introduction">Introduction</a><a href="quickstart">Quickstart</a><a href="authentication" class="current" aria-current="page">Authentication</a><a href="environments">Environments</a>
+      </div>
+      <div class="nav-group">
+        <h4>Core concepts</h4>
+        <a href="custody-model">The custody model</a><a href="transaction-lifecycle">Transaction lifecycle</a><a href="amounts">Amounts and precision</a><a href="errors">Errors</a><a href="rate-limits">Rate limits</a>
+      </div>
+      <div class="nav-group">
+        <h4>Guides</h4>
+        <a href="guide-receive">Guide: receive bitcoin</a><a href="guide-send">Guide: send bitcoin</a><a href="guide-sync">Guide: sync with a chain</a>
+      </div>
+      <div class="nav-group">
+        <h4>Reference</h4>
+        <a href="api-reference">API reference</a><a href="changelog">Changelog</a>
+      </div></nav>
+
+      <main class="content">
+        <p class="eyebrow">Get started</p>
+        <h1>Authentication</h1>
+        <p class="lede">One bearer token. No sessions, no cookies, no refresh flow.</p>
+        
+<div class="code-block"><span class="code-lang">http</span><pre>Authorization: Bearer &lt;token&gt;</pre></div>
+
+<p>
+  Every endpoint except <code>/health</code> requires it. The token is 256 bits
+  from the OS CSPRNG, generated at startup and printed once, or supplied via
+  <code>VEYRA_API_TOKEN</code>.
+</p>
+
+<h2 id="timing"><a class="anchor" href="#timing" aria-label="Link to this section">#</a>Comparison is timing-safe</h2>
+<p>
+  The token is compared with <code>timingSafeEqual</code> over SHA-256 digests
+  of both sides. Two reasons, and the second is the one people miss:
+</p>
+<ul>
+  <li>String comparison short-circuits at the first differing byte, so response
+      time leaks how many leading bytes matched. Enough samples and a token is
+      recoverable one byte at a time.</li>
+  <li><code>timingSafeEqual</code> <em>throws</em> on differing lengths — and
+      that throw is itself an oracle revealing the token's length. Hashing both
+      sides to a fixed 32 bytes removes the length signal entirely.</li>
+</ul>
+
+<h2 id="identical"><a class="anchor" href="#identical" aria-label="Link to this section">#</a>Every failure looks the same</h2>
+<div class="code-block"><span class="code-lang">json</span><pre>{ <span class="tok-key">"error"</span>: { <span class="tok-key">"code"</span>: <span class="tok-str">"UNAUTHORIZED"</span>, <span class="tok-key">"message"</span>: <span class="tok-str">"Authentication required"</span> } }</pre></div>
+<p>
+  Missing header, wrong scheme, malformed header, and wrong token all produce
+  this exact body with a 401. Telling an attacker "wrong scheme" confirms they
+  found the right header name; "invalid token" confirms the format is right.
+  A malformed header still runs a comparison, so it is not measurably faster to
+  reject than a well-formed one.
+</p>
+
+<h2 id="ratelimit-order"><a class="anchor" href="#ratelimit-order" aria-label="Link to this section">#</a>Rate limiting runs first</h2>
+<p>
+  Before authentication, deliberately. If failed auth did not consume an
+  allowance, tokens could be brute-forced at full speed.
+</p>
+
+<h2 id="cors"><a class="anchor" href="#cors" aria-label="Link to this section">#</a>CORS</h2>
+<p>
+  Browser origins must be allowlisted — never <code>*</code>. The token is the
+  real defence, but a wildcard would let any site probe this API from a
+  victim's browser and read the replies, turning a stolen token into one usable
+  from anywhere.
+</p>
+<div class="code-block"><span class="code-lang">powershell</span><pre>$env:VEYRA_ALLOWED_ORIGINS = <span class="tok-str">"http://127.0.0.1:5173"</span></pre></div>
+<div class="callout" data-tone="teal"><strong>CORS protects browsers, not the API.</strong>
+<code>curl</code> and every non-browser client ignore it entirely.</div>
+        
+    <nav class="pager">
+      <a class="pager-link" href="quickstart"><span>Previous</span><strong>Quickstart</strong></a>
+      <a class="pager-link next" href="environments"><span>Next</span><strong>Environments</strong></a>
+    </nav>
+      </main>
+
+      <aside class="toc">
+           <h5>On this page</h5>
+           <a href="#timing">Comparison is timing-safe</a><a href="#identical">Every failure looks the same</a><a href="#ratelimit-order">Rate limiting runs first</a><a href="#cors">CORS</a>
+         </aside>
+    </div>
+
+    <script src="assets/docs.js" type="module"></script>
+  </body>
+</html>

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="A stable code, a safe message, and three deliberate ambiguities." />
+    <title>Errors — Veyra API</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="assets/docs.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button class="menu-toggle" aria-label="Menu" aria-expanded="false">☰</button>
+      <a class="brand" href="introduction">
+        <span class="brand-mark">Veyra</span><span class="brand-kind">Docs</span>
+      </a>
+      <nav class="topnav">
+        <a href="api-reference">API reference</a>
+        <a href="changelog">Changelog</a>
+        <a href="https://github.com/3nylar/Veyra" rel="noopener noreferrer" target="_blank">GitHub</a>
+        <button class="theme-toggle" aria-label="Toggle theme">◐</button>
+      </nav>
+    </header>
+
+    <div class="layout">
+      <nav class="sidebar" aria-label="Documentation">
+      <div class="nav-group">
+        <h4>Get started</h4>
+        <a href="introduction">Introduction</a><a href="quickstart">Quickstart</a><a href="authentication">Authentication</a><a href="environments">Environments</a>
+      </div>
+      <div class="nav-group">
+        <h4>Core concepts</h4>
+        <a href="custody-model">The custody model</a><a href="transaction-lifecycle">Transaction lifecycle</a><a href="amounts">Amounts and precision</a><a href="errors" class="current" aria-current="page">Errors</a><a href="rate-limits">Rate limits</a>
+      </div>
+      <div class="nav-group">
+        <h4>Guides</h4>
+        <a href="guide-receive">Guide: receive bitcoin</a><a href="guide-send">Guide: send bitcoin</a><a href="guide-sync">Guide: sync with a chain</a>
+      </div>
+      <div class="nav-group">
+        <h4>Reference</h4>
+        <a href="api-reference">API reference</a><a href="changelog">Changelog</a>
+      </div></nav>
+
+      <main class="content">
+        <p class="eyebrow">Core concepts</p>
+        <h1>Errors</h1>
+        <p class="lede">A stable code, a safe message, and three deliberate ambiguities.</p>
+        
+<div class="code-block"><span class="code-lang">json</span><pre>{ <span class="tok-key">"error"</span>: { <span class="tok-key">"code"</span>: <span class="tok-str">"UNPROCESSABLE"</span>, <span class="tok-key">"message"</span>: <span class="tok-str">"insufficient funds"</span> } }</pre></div>
+<p>Branch on <code>code</code>, never on <code>message</code>. A copy edit should not change your behaviour.</p>
+
+<h2 id="codes"><a class="anchor" href="#codes" aria-label="Link to this section">#</a>Codes</h2>
+<table>
+  <tr><th>Code</th><th>Status</th><th>Meaning</th></tr>
+  <tr><td><code>BAD_REQUEST</code></td><td>400</td><td>Malformed body, wrong type, or an unknown field</td></tr>
+  <tr><td><code>UNAUTHORIZED</code></td><td>401</td><td>Missing or wrong token</td></tr>
+  <tr><td><code>NOT_FOUND</code></td><td>404</td><td>Unknown path, or a prepared transaction that is gone</td></tr>
+  <tr><td><code>CONFLICT</code></td><td>409</td><td>Too many transactions awaiting confirmation</td></tr>
+  <tr><td><code>PAYLOAD_TOO_LARGE</code></td><td>413</td><td>Body above 64 KB</td></tr>
+  <tr><td><code>UNPROCESSABLE</code></td><td>422</td><td>Valid request the wallet refuses — insufficient funds, dust, wrong network</td></tr>
+  <tr><td><code>RATE_LIMITED</code></td><td>429</td><td>Above the request allowance</td></tr>
+  <tr><td><code>INTERNAL</code></td><td>500</td><td>Unexpected failure; detail logged server-side only</td></tr>
+</table>
+
+<h2 id="two-messages"><a class="anchor" href="#two-messages" aria-label="Link to this section">#</a>Every error has two messages</h2>
+<p>
+  A <strong>public</strong> one, sent to you, built from constant strings with
+  no interpolated server state. And an <strong>internal</strong> one, logged
+  server-side, which may contain anything useful. They are separate fields, so
+  the serialiser cannot send the wrong one.
+</p>
+<p>Errors never contain: stack traces, file paths, derivation paths, or your own submitted values echoed back.</p>
+
+<h2 id="ambiguities"><a class="anchor" href="#ambiguities" aria-label="Link to this section">#</a>Three deliberate ambiguities</h2>
+<table>
+  <tr><th>Behaviour</th><th>Why</th></tr>
+  <tr><td>All auth failures identical</td><td>Otherwise the response reveals how close a guess was</td></tr>
+  <tr><td>All 404s identical</td><td>Nonexistent, expired, and already-sent are indistinguishable, so ids cannot be probed</td></tr>
+  <tr><td>Wrong method returns 404, not 405</td><td>A 405 confirms the path exists — free reconnaissance</td></tr>
+</table>
+
+<h2 id="unknown-fields"><a class="anchor" href="#unknown-fields" aria-label="Link to this section">#</a>Unknown fields are rejected</h2>
+<div class="code-block"><span class="code-lang">json</span><pre>{ <span class="tok-key">"to"</span>: <span class="tok-str">"bcrt1q..."</span>, <span class="tok-key">"amount"</span>: <span class="tok-str">"100000"</span>, <span class="tok-key">"feeRate"</span>: <span class="tok-num">5</span>, <span class="tok-key">"ammount"</span>: <span class="tok-str">"999"</span> }
+<span class="tok-com">// 400 — Unexpected field: ammount</span></pre></div>
+<p>
+  Ignoring unknown fields turns a typo into a confusing downstream failure, and
+  is how mass-assignment bugs appear when a field later gains meaning.
+</p>
+        
+    <nav class="pager">
+      <a class="pager-link" href="amounts"><span>Previous</span><strong>Amounts and precision</strong></a>
+      <a class="pager-link next" href="rate-limits"><span>Next</span><strong>Rate limits</strong></a>
+    </nav>
+      </main>
+
+      <aside class="toc">
+           <h5>On this page</h5>
+           <a href="#codes">Codes</a><a href="#two-messages">Every error has two messages</a><a href="#ambiguities">Three deliberate ambiguities</a><a href="#unknown-fields">Unknown fields are rejected</a>
+         </aside>
+    </div>
+
+    <script src="assets/docs.js" type="module"></script>
+  </body>
+</html>

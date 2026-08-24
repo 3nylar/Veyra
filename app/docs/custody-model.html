@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Where the keys are, what can reach them, and what that costs you." />
+    <title>The custody model — Veyra API</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="assets/docs.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button class="menu-toggle" aria-label="Menu" aria-expanded="false">☰</button>
+      <a class="brand" href="introduction">
+        <span class="brand-mark">Veyra</span><span class="brand-kind">Docs</span>
+      </a>
+      <nav class="topnav">
+        <a href="api-reference">API reference</a>
+        <a href="changelog">Changelog</a>
+        <a href="https://github.com/3nylar/Veyra" rel="noopener noreferrer" target="_blank">GitHub</a>
+        <button class="theme-toggle" aria-label="Toggle theme">◐</button>
+      </nav>
+    </header>
+
+    <div class="layout">
+      <nav class="sidebar" aria-label="Documentation">
+      <div class="nav-group">
+        <h4>Get started</h4>
+        <a href="introduction">Introduction</a><a href="quickstart">Quickstart</a><a href="authentication">Authentication</a><a href="environments">Environments</a>
+      </div>
+      <div class="nav-group">
+        <h4>Core concepts</h4>
+        <a href="custody-model" class="current" aria-current="page">The custody model</a><a href="transaction-lifecycle">Transaction lifecycle</a><a href="amounts">Amounts and precision</a><a href="errors">Errors</a><a href="rate-limits">Rate limits</a>
+      </div>
+      <div class="nav-group">
+        <h4>Guides</h4>
+        <a href="guide-receive">Guide: receive bitcoin</a><a href="guide-send">Guide: send bitcoin</a><a href="guide-sync">Guide: sync with a chain</a>
+      </div>
+      <div class="nav-group">
+        <h4>Reference</h4>
+        <a href="api-reference">API reference</a><a href="changelog">Changelog</a>
+      </div></nav>
+
+      <main class="content">
+        <p class="eyebrow">Core concepts</p>
+        <h1>The custody model</h1>
+        <p class="lede">Where the keys are, what can reach them, and what that costs you.</p>
+        
+<h2 id="boundary"><a class="anchor" href="#boundary" aria-label="Link to this section">#</a>The secrecy boundary</h2>
+<p>
+  Secrets stop at <code>core/wallet/</code>. Everything above it — the API, the
+  UI — deals in addresses, amounts, and transaction hex.
+</p>
+<table>
+  <tr><th>Layer</th><th>Can reach a key</th></tr>
+  <tr><td>Browser UI</td><td>No</td></tr>
+  <tr><td>HTTP API</td><td>No</td></tr>
+  <tr><td>Wallet core</td><td><strong>Yes</strong></td></tr>
+</table>
+
+<h2 id="absent"><a class="anchor" href="#absent" aria-label="Link to this section">#</a>The absent endpoints</h2>
+<p>
+  <span class="pill">/private-key</span><span class="pill">/seed</span><span class="pill">/mnemonic</span><span class="pill">/secrets</span><span class="pill">/wallet/export</span><span class="pill">/wallet/backup</span>
+</p>
+<p>
+  These return 404 because they do not exist. A test enumerates the service
+  class by reflection and fails if any method name matches
+  <code>/priv|seed|mnemonic|secret|export|backup|xprv/</code>, so adding one
+  breaks the build.
+</p>
+
+<h2 id="backup"><a class="anchor" href="#backup" aria-label="Link to this section">#</a>Backup is the mnemonic, shown once</h2>
+<p>
+  Returned at wallet creation and never again. If it is lost the funds are
+  unrecoverable — which is the honest behaviour for self-custody rather than a
+  missing feature. A copy the wallet can retrieve is a copy an attacker can
+  retrieve.
+</p>
+
+<h2 id="redaction"><a class="anchor" href="#redaction" aria-label="Link to this section">#</a>Keys refuse to serialise</h2>
+<p>
+  Even inside the core, <code>PrivateKey</code> redacts itself. The most common
+  way wallets lose funds is not a broken curve — it is a key that ended up in a
+  log line.
+</p>
+<div class="code-block"><span class="code-lang">javascript</span><pre>String(key)                    <span class="tok-com">// "PrivateKey&lt;redacted&gt;"</span>
+JSON.stringify({ key })        <span class="tok-com">// {"key":"PrivateKey&lt;redacted&gt;"}</span>
+util.inspect(key, {showHidden: true})  <span class="tok-com">// redacted</span>
+Object.keys(key)               <span class="tok-com">// []</span></pre></div>
+
+<h2 id="cost"><a class="anchor" href="#cost" aria-label="Link to this section">#</a>What this costs you</h2>
+<div class="callout" data-tone="danger"><strong>This process is a custodian for as long as it runs.</strong>
+Keys are in ordinary process memory. There is no HSM, no enclave, and no
+at-rest encryption. Anyone who can read the process, a core dump, or swap can
+extract them. Zeroing buffers after use is best-effort in a garbage-collected
+runtime — it narrows the window, it does not close it.</div>
+<p>
+  The alternative design — returning unsigned transactions for a client to sign
+  — would remove this, at the cost of every client needing key handling. Veyra
+  chose server-side signing because the project's purpose is to make the
+  cryptography legible in one place. That is a trade-off, and this page is
+  where it is written down rather than glossed over.
+</p>
+        
+    <nav class="pager">
+      <a class="pager-link" href="environments"><span>Previous</span><strong>Environments</strong></a>
+      <a class="pager-link next" href="transaction-lifecycle"><span>Next</span><strong>Transaction lifecycle</strong></a>
+    </nav>
+      </main>
+
+      <aside class="toc">
+           <h5>On this page</h5>
+           <a href="#boundary">The secrecy boundary</a><a href="#absent">The absent endpoints</a><a href="#backup">Backup is the mnemonic, shown once</a><a href="#redaction">Keys refuse to serialise</a><a href="#cost">What this costs you</a>
+         </aside>
+    </div>
+
+    <script src="assets/docs.js" type="module"></script>
+  </body>
+</html>

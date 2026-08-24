@@ -1,0 +1,28 @@
+# Render — Veyra watch-only API
+#
+# Secrets are marked `sync: false`, so Render prompts for them in the dashboard
+# rather than reading them from this committed file.
+
+services:
+  - type: web
+    name: veyra-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: VEYRA_NETWORK
+        value: testnet
+      - key: VEYRA_HOST
+        value: 0.0.0.0
+      # Watch-only by default. A hosted seed is a custodial service.
+      - key: VEYRA_WATCH_ONLY
+        value: "true"
+      - key: VEYRA_XPUB
+        sync: false        # set in the dashboard
+      - key: VEYRA_API_TOKEN
+        sync: false        # set in the dashboard
+      - key: VEYRA_ESPLORA_URL
+        sync: false
+      - key: VEYRA_ALLOWED_ORIGINS
+        sync: false

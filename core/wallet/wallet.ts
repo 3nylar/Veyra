@@ -157,6 +157,29 @@ export class Wallet {
   /** Completed spends, for velocity accounting and known-recipient checks. */
   #spendHistory: SpendRecord[] = [];
 
+  /**
+   * Cache of derived signing nodes, keyed by derivation path.
+   *
+   * `derivePath` from the master costs ~2.6 ms — three hardened levels of
+   * HMAC-SHA512 plus EC multiplication — and `send()` calls it once PER INPUT.
+   * A twenty-input transaction paid that cost twenty times.
+   *
+   * ─── The security trade-off, stated rather than assumed ─────────────────
+   * Caching derived nodes keeps private key material resident longer, which
+   * looks like a regression. Materially it is not: the MASTER key is already
+   * resident for the process lifetime, and anyone who can read this process's
+   * memory can derive every child from it in microseconds. The cache grants an
+   * attacker no capability they did not already have.
+   *
+   * What it WOULD change is a wallet that unloaded its master between
+   * operations — which this one does not do, and which the threat model
+   * (docs/THREAT-MODEL.md, A5) already places out of reach. If that ever
+   * changes, this cache must be reconsidered.
+   *
+   * Bounded, so a caller iterating paths cannot grow it without limit.
+   */
+  #signingNodes = new Map<string, ExtendedKey>();
+
   private constructor(master: ExtendedKey, network: Network, accountIndex: number) {
     this.#master = master;
     this.network = network;
@@ -293,6 +316,20 @@ export class Wallet {
    * scanned stays known. The cache is still safe because the address set is a
    * pure function of seed, network, and account index.
    */
+  /** Largest number of signing nodes to memoise. */
+  static readonly MAX_CACHED_NODES = 500;
+
+  /** A signing node for a path, memoised. See the note on #signingNodes. */
+  private signingNode(path: string): ExtendedKey {
+    const cached = this.#signingNodes.get(path);
+    if (cached) return cached;
+    const node = this.#master.derivePath(path);
+    if (this.#signingNodes.size < Wallet.MAX_CACHED_NODES) {
+      this.#signingNodes.set(path, node);
+    }
+    return node;
+  }
+
   private knownAddresses(depth = GAP_LIMIT): Set<string> {
     if (this.#knownAddresses === null) {
       this.#knownAddresses = new Set();
@@ -611,7 +648,7 @@ export class Wallet {
       unsigned,
       original.inputs.map((utxo) => ({
         value: utxo.value,
-        privateKey: this.#master.derivePath(utxo.derivationPath).privateKey,
+        privateKey: this.signingNode(utxo.derivationPath).privateKey,
       })),
     );
 
@@ -852,7 +889,7 @@ export class Wallet {
       unsigned,
       selection.selected.map((utxo) => ({
         value: utxo.value,
-        privateKey: this.#master.derivePath(utxo.derivationPath).privateKey,
+        privateKey: this.signingNode(utxo.derivationPath).privateKey,
       })),
     );
 

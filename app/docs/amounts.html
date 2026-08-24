@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Satoshis, as strings, always. And why that is not pedantry." />
+    <title>Amounts and precision — Veyra API</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="assets/docs.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button class="menu-toggle" aria-label="Menu" aria-expanded="false">☰</button>
+      <a class="brand" href="introduction">
+        <span class="brand-mark">Veyra</span><span class="brand-kind">Docs</span>
+      </a>
+      <nav class="topnav">
+        <a href="api-reference">API reference</a>
+        <a href="changelog">Changelog</a>
+        <a href="https://github.com/3nylar/Veyra" rel="noopener noreferrer" target="_blank">GitHub</a>
+        <button class="theme-toggle" aria-label="Toggle theme">◐</button>
+      </nav>
+    </header>
+
+    <div class="layout">
+      <nav class="sidebar" aria-label="Documentation">
+      <div class="nav-group">
+        <h4>Get started</h4>
+        <a href="introduction">Introduction</a><a href="quickstart">Quickstart</a><a href="authentication">Authentication</a><a href="environments">Environments</a>
+      </div>
+      <div class="nav-group">
+        <h4>Core concepts</h4>
+        <a href="custody-model">The custody model</a><a href="transaction-lifecycle">Transaction lifecycle</a><a href="amounts" class="current" aria-current="page">Amounts and precision</a><a href="errors">Errors</a><a href="rate-limits">Rate limits</a>
+      </div>
+      <div class="nav-group">
+        <h4>Guides</h4>
+        <a href="guide-receive">Guide: receive bitcoin</a><a href="guide-send">Guide: send bitcoin</a><a href="guide-sync">Guide: sync with a chain</a>
+      </div>
+      <div class="nav-group">
+        <h4>Reference</h4>
+        <a href="api-reference">API reference</a><a href="changelog">Changelog</a>
+      </div></nav>
+
+      <main class="content">
+        <p class="eyebrow">Core concepts</p>
+        <h1>Amounts and precision</h1>
+        <p class="lede">Satoshis, as strings, always. And why that is not pedantry.</p>
+        
+<h2 id="strings"><a class="anchor" href="#strings" aria-label="Link to this section">#</a>Responses are always strings</h2>
+<div class="code-block"><span class="code-lang">json</span><pre>{ <span class="tok-key">"spendable"</span>: <span class="tok-str">"1500000"</span>, <span class="tok-key">"unconfirmed"</span>: <span class="tok-str">"0"</span> }</pre></div>
+<p>
+  JSON numbers are IEEE 754 doubles. Integers above 2<sup>53</sup> round
+  silently — <code>JSON.parse</code> turns
+  <code>1000000000000000001</code> into <code>1000000000000000000</code> with no
+  error. Bitcoin's total supply is 2.1×10<sup>15</sup> satoshis, under that
+  ceiling, but intermediate fee arithmetic does not reliably stay there.
+</p>
+
+<h2 id="requests"><a class="anchor" href="#requests" aria-label="Link to this section">#</a>Requests accept either</h2>
+<div class="code-block"><span class="code-lang">json</span><pre>{ <span class="tok-key">"amount"</span>: <span class="tok-str">"100000"</span> }   <span class="tok-com">// preferred</span>
+{ <span class="tok-key">"amount"</span>: <span class="tok-num">100000</span> }     <span class="tok-com">// accepted below 2^53</span></pre></div>
+<p>
+  A number above <code>Number.MAX_SAFE_INTEGER</code> is <strong>rejected</strong>,
+  not truncated, with a message telling you to send a string.
+</p>
+
+<h2 id="btc"><a class="anchor" href="#btc" aria-label="Link to this section">#</a>Converting to BTC</h2>
+<div class="callout" data-tone="danger"><strong>Never <code>parseFloat(btc) * 1e8</code>.</strong>
+<code>4.35 * 1e8</code> is <code>434999999.99999994</code> in floating point.
+<code>Math.round</code> hides it in most cases — and "usually correct" is not a
+property money arithmetic may have.</div>
+<div class="code-block"><span class="code-lang">javascript</span><pre><span class="tok-com">// String arithmetic. Exact for every representable amount.</span>
+function btcToSats(input) {
+  const [whole = <span class="tok-str">"0"</span>, frac = <span class="tok-str">""</span>] = input.trim().split(<span class="tok-str">"."</span>);
+  <span class="tok-key">if</span> (frac.length &gt; 8) <span class="tok-key">throw new</span> Error(<span class="tok-str">"8 decimal places maximum"</span>);
+  <span class="tok-key">return</span> BigInt(whole) * 100000000n + BigInt((frac + <span class="tok-str">"00000000"</span>).slice(0, 8));
+}</pre></div>
+
+<h2 id="dust"><a class="anchor" href="#dust" aria-label="Link to this section">#</a>The dust threshold</h2>
+<p>
+  Outputs below <strong>294 satoshis</strong> are refused. Relay policy rejects
+  them because they cost more to spend than they are worth and bloat the UTXO
+  set every node keeps in memory forever.
+</p>
+<p>
+  When <em>change</em> would fall below dust it cannot become an output at all,
+  so it is given to the miner as extra fee. That is not a bug — it is the only
+  valid option, and the review shows the realised fee so you can see it happen.
+</p>
+        
+    <nav class="pager">
+      <a class="pager-link" href="transaction-lifecycle"><span>Previous</span><strong>Transaction lifecycle</strong></a>
+      <a class="pager-link next" href="errors"><span>Next</span><strong>Errors</strong></a>
+    </nav>
+      </main>
+
+      <aside class="toc">
+           <h5>On this page</h5>
+           <a href="#strings">Responses are always strings</a><a href="#requests">Requests accept either</a><a href="#btc">Converting to BTC</a><a href="#dust">The dust threshold</a>
+         </aside>
+    </div>
+
+    <script src="assets/docs.js" type="module"></script>
+  </body>
+</html>

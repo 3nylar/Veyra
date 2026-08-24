@@ -1,0 +1,48 @@
+# Fly.io — Veyra watch-only API
+#
+# Deploy:
+#   fly launch --no-deploy --copy-config --config deploy/fly.toml
+#   fly secrets set VEYRA_XPUB="tpub..." VEYRA_API_TOKEN="$(openssl rand -hex 32)"
+#   fly deploy
+#
+# Secrets are set with `fly secrets`, NEVER in this file. This file is
+# committed; secrets in it would be published with the repository.
+
+app = "veyra-api"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "../Dockerfile"
+
+[env]
+  VEYRA_NETWORK = "testnet"
+  VEYRA_PORT = "3000"
+  VEYRA_HOST = "0.0.0.0"
+  # Watch-only is the DEFAULT here, not an option. A hosted process holding a
+  # seed is a custodial service whether or not anyone calls it that.
+  VEYRA_WATCH_ONLY = "true"
+
+[http_service]
+  internal_port = 3000
+  # TLS is terminated by Fly. The API speaks plain HTTP and must never be
+  # reachable without a proxy in front of it.
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 200
+    soft_limit = 100
+
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "10s"
+  method = "GET"
+  path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

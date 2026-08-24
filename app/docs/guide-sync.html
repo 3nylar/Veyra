@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Discovering your own coins, and what it tells the server about you." />
+    <title>Guide: sync with a chain — Veyra API</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="assets/docs.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button class="menu-toggle" aria-label="Menu" aria-expanded="false">☰</button>
+      <a class="brand" href="introduction">
+        <span class="brand-mark">Veyra</span><span class="brand-kind">Docs</span>
+      </a>
+      <nav class="topnav">
+        <a href="api-reference">API reference</a>
+        <a href="changelog">Changelog</a>
+        <a href="https://github.com/3nylar/Veyra" rel="noopener noreferrer" target="_blank">GitHub</a>
+        <button class="theme-toggle" aria-label="Toggle theme">◐</button>
+      </nav>
+    </header>
+
+    <div class="layout">
+      <nav class="sidebar" aria-label="Documentation">
+      <div class="nav-group">
+        <h4>Get started</h4>
+        <a href="introduction">Introduction</a><a href="quickstart">Quickstart</a><a href="authentication">Authentication</a><a href="environments">Environments</a>
+      </div>
+      <div class="nav-group">
+        <h4>Core concepts</h4>
+        <a href="custody-model">The custody model</a><a href="transaction-lifecycle">Transaction lifecycle</a><a href="amounts">Amounts and precision</a><a href="errors">Errors</a><a href="rate-limits">Rate limits</a>
+      </div>
+      <div class="nav-group">
+        <h4>Guides</h4>
+        <a href="guide-receive">Guide: receive bitcoin</a><a href="guide-send">Guide: send bitcoin</a><a href="guide-sync" class="current" aria-current="page">Guide: sync with a chain</a>
+      </div>
+      <div class="nav-group">
+        <h4>Reference</h4>
+        <a href="api-reference">API reference</a><a href="changelog">Changelog</a>
+      </div></nav>
+
+      <main class="content">
+        <p class="eyebrow">Guides</p>
+        <h1>Guide: sync with a chain</h1>
+        <p class="lede">Discovering your own coins, and what it tells the server about you.</p>
+        
+<h2 id="sources"><a class="anchor" href="#sources" aria-label="Link to this section">#</a>Two sources</h2>
+<table>
+  <tr><th>Source</th><th>Configure</th><th>Privacy</th></tr>
+  <tr><td>Bitcoin Core RPC</td><td><code>VEYRA_RPC_URL</code> + credentials</td><td><strong>Best.</strong> Your own node learns nothing you did not already know.</td></tr>
+  <tr><td>Esplora HTTP</td><td><code>VEYRA_ESPLORA_URL</code></td><td>Poor unless self-hosted — see below.</td></tr>
+</table>
+<p>Neither is configured by default. Nothing contacts a third party unless you ask it to.</p>
+
+<h2 id="scan"><a class="anchor" href="#scan" aria-label="Link to this section">#</a>How the scan works</h2>
+<div class="code-block"><span class="code-lang">http</span><pre>POST /wallet/sync</pre></div>
+<div class="code-block"><span class="code-lang">json</span><pre>{ <span class="tok-key">"utxos"</span>: <span class="tok-num">2</span>, <span class="tok-key">"addressesScanned"</span>: <span class="tok-num">46</span> }</pre></div>
+<p>
+  Walks the receive chain, then the change chain, asking whether each address
+  has ever been used, and stops after <strong>20 consecutive unused</strong>.
+  It continues <em>past</em> a used address, so a gap in the middle is still
+  found.
+</p>
+<p>
+  This matches BIP-44 convention deliberately. Scanning differently from other
+  wallets would find funds they report as missing, or miss funds they find —
+  an interoperability failure that looks exactly like lost money.
+</p>
+
+<h2 id="privacy"><a class="anchor" href="#privacy" aria-label="Link to this section">#</a>The privacy cost of a public server</h2>
+<div class="callout" data-tone="danger"><strong>A sync tells the server your entire wallet.</strong>
+Every address you own, that they belong to one wallet, your balance, your full
+history, and your IP address — in a single session. No cryptography prevents
+this. It is inherent to asking someone else about your coins.</div>
+<p>The blockchain is public. <em>Which addresses are yours</em> is not, and a light-wallet query hands over exactly that. Mitigations:</p>
+<ul>
+  <li>Run your own node or Esplora instance — removes the leak entirely.</li>
+  <li>Tor — removes the IP linkage, not the address clustering.</li>
+  <li>Compact block filters (BIP-157/158) — the client never reveals which addresses it cares about. Not implemented.</li>
+</ul>
+<p><code>GET /wallet/security</code> reports whether your configured source is third-party, and returns a warning string you should surface.</p>
+
+<h2 id="limits"><a class="anchor" href="#limits" aria-label="Link to this section">#</a>What sync cannot verify</h2>
+<p>
+  A source that <em>omits</em> a UTXO cannot be detected. The wallet simply
+  looks poorer and produces an unexplained "insufficient funds". This is
+  inherent to not running a full node.
+</p>
+<p>
+  Note also that the Bitcoin Core source uses <code>scantxoutset</code>, which
+  sees <strong>unspent outputs only</strong> — a fully-spent address looks
+  unused, so the gap-limit scan may stop earlier against a node than against
+  Esplora.
+</p>
+        
+    <nav class="pager">
+      <a class="pager-link" href="guide-send"><span>Previous</span><strong>Guide: send bitcoin</strong></a>
+      <a class="pager-link next" href="api-reference"><span>Next</span><strong>API reference</strong></a>
+    </nav>
+      </main>
+
+      <aside class="toc">
+           <h5>On this page</h5>
+           <a href="#sources">Two sources</a><a href="#scan">How the scan works</a><a href="#privacy">The privacy cost of a public server</a><a href="#limits">What sync cannot verify</a>
+         </aside>
+    </div>
+
+    <script src="assets/docs.js" type="module"></script>
+  </body>
+</html>

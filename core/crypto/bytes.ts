@@ -96,6 +96,61 @@ export function assertLength(
   }
 }
 
+/**
+ * Base64, implemented rather than delegated.
+ *
+ * `Buffer` is Node-only and `btoa`/`atob` are browser-only, so using either
+ * would tie core/ to one runtime — see docs/ATTACKS.md VEY-014, where the
+ * claim that core/ was portable turned out to be false precisely because of
+ * this. A 20-line implementation removes the question.
+ *
+ * Note this is standard base64 with padding, not base64url: PSBTs and
+ * keystores use the padded alphabet.
+ */
+const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const B64_INDEX: ReadonlyMap<string, number> = new Map([...B64].map((c, i) => [c, i]));
+
+export function bytesToBase64(bytes: Uint8Array): string {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i]!;
+    const b = bytes[i + 1];
+    const c = bytes[i + 2];
+    out += B64[a >> 2];
+    out += B64[((a & 0x03) << 4) | ((b ?? 0) >> 4)];
+    out += b === undefined ? "=" : B64[((b & 0x0f) << 2) | ((c ?? 0) >> 6)];
+    out += c === undefined ? "=" : B64[c & 0x3f];
+  }
+  return out;
+}
+
+export function base64ToBytes(text: string): Uint8Array {
+  const clean = text.trim();
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(clean)) {
+    throw new InvalidEncodingError("string is not valid base64");
+  }
+  if (clean.length % 4 !== 0) {
+    throw new InvalidEncodingError("base64 length must be a multiple of 4");
+  }
+  if (clean.length === 0) return new Uint8Array(0);
+
+  const padding = clean.endsWith("==") ? 2 : clean.endsWith("=") ? 1 : 0;
+  const out = new Uint8Array((clean.length / 4) * 3 - padding);
+  let offset = 0;
+
+  for (let i = 0; i < clean.length; i += 4) {
+    const a = B64_INDEX.get(clean[i]!) ?? 0;
+    const b = B64_INDEX.get(clean[i + 1]!) ?? 0;
+    const c = B64_INDEX.get(clean[i + 2]!) ?? 0;
+    const d = B64_INDEX.get(clean[i + 3]!) ?? 0;
+
+    if (offset < out.length) out[offset++] = (a << 2) | (b >> 4);
+    if (offset < out.length) out[offset++] = ((b & 0x0f) << 4) | (c >> 2);
+    if (offset < out.length) out[offset++] = ((c & 0x03) << 6) | d;
+  }
+  return out;
+}
+
 export function concatBytes(...arrays: Uint8Array[]): Uint8Array {
   const total = arrays.reduce((n, a) => n + a.length, 0);
   const out = new Uint8Array(total);

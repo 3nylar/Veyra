@@ -46,6 +46,9 @@ export default defineConfig({
     rollupOptions: {
       input: {
         index: resolve(__dirname, "index.html"),
+        // The offline signer. Bundled as its own entry so it can be copied to
+        // an air-gapped machine as a self-contained page.
+        signer: resolve(__dirname, "signer.html"),
         ...docsEntries(),
       },
     },

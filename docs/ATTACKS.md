@@ -541,6 +541,142 @@ extension, relied upon by a caller that needs a present-day restriction.
 
 ---
 
+## VEY-013 — The test runner's default timeout was an unnoticed wall-clock assertion
+
+**Severity:** Low (test quality) · **Found:** increment 15, by a user running
+the suite on their own hardware
+
+### Failure
+```
+Error: Test timed out in 5000ms.
+  tests/unit/wallet.test.ts > value conservation across a spend
+```
+
+The property held. 200 randomised sends all satisfied
+`inputs = amount + fee + change`. The test simply took longer than five
+seconds on that machine — about 2 s here.
+
+### Root cause
+Two things, and the first is the interesting one.
+
+**Vitest's 5-second default timeout is a wall-clock assertion applied to every
+test, and I never wrote it.** VEY-009 taught me not to assert elapsed time —
+and I then left the runner asserting it implicitly on all 843 tests. The lesson
+had been learned about explicit assertions and missed entirely about the
+default.
+
+**The send path was also genuinely slow.** `send()` called
+`master.derivePath(...)` once **per input**, and that path costs ~2.6 ms — three
+hardened levels of HMAC-SHA512 plus EC multiplication. A twenty-input
+transaction paid it twenty times.
+
+### Fix
+1. **`testTimeout: 30_000` in `vitest.config.ts`**, with a comment explaining
+   that these are correctness tests rather than benchmarks: there is no number
+   here that means "fast enough", only one that means "did not hang".
+2. **A bounded cache of derived signing nodes.** 10.6 ms → 8.1 ms per send.
+
+The remaining cost is ECDSA signing plus verification. `send()` verifies its own
+output *after* `signTransaction` already verified each signature, which doubles
+the verify cost — and that redundancy was **kept deliberately**: it validates
+the assembled witness, not just the signatures, which is a different failure
+class.
+
+### The trade-off in the cache, stated rather than assumed
+Caching derived nodes keeps private key material resident longer, which looks
+like a security regression. Materially it is not: the master key is already
+resident for the process lifetime, and anyone who can read this process's memory
+can derive every child from it in microseconds. The cache grants no capability
+an attacker did not already have.
+
+It *would* matter for a wallet that unloaded its master between operations. This
+one does not, and A5 of the threat model already places that attacker out of
+reach — but the comment on the cache says so, so the assumption is visible if it
+ever changes.
+
+### Lesson
+**Defaults are assertions you did not write.** A framework's timeout, a
+linter's threshold, a default retry count — each encodes a decision, and one
+you did not make is one you have not checked.
+
+The narrower form: after fixing a class of bug, search for the *implicit*
+instances. VEY-009 removed the explicit wall-clock assertions; the default
+survived because it was not in the code I was reading.
+
+Worth noting the profile step here mattered. The reflex was to raise the
+timeout, which would have hidden a real 24% inefficiency in the signing path —
+the same instinct I caught myself having in VEY-003.
+
+---
+
+## VEY-014 — The architecture documented a portability claim that was false
+
+**Severity:** Low (documentation, but it blocked a real feature) ·
+**Found:** increment 17, while building the client-side signer
+
+### Failure
+`docs/ARCHITECTURE.md` stated:
+
+> `core/` must never import from `api/` or `app/`. That is what makes it
+> testable without a server **and portable into a mobile UI unchanged**.
+
+The first half was true and guarded. The second half was **false**, and had
+been for months. Four modules used Node-only APIs:
+
+| Module | Node dependency |
+| --- | --- |
+| `wallet/keystore.ts` | `node:crypto` — scrypt, AES-GCM |
+| `psbt/psbt.ts` | `Buffer` — base64 |
+| `addresses/bip84.ts` | `Buffer` — hex |
+| `derivation/bip32.ts` | `Buffer` (via helpers) |
+
+A single `node:` import poisons the whole dependency graph: importing the
+wallet pulls in the keystore, so *nothing* in `core/` would load in a browser.
+
+### Root cause
+Every test ran in Node, so nothing exercised the claim. The guard tests that
+protect the other structural invariants — no `Math.random()`, no reference-code
+imports — exist because those failures are invisible to behavioural testing.
+Portability is exactly the same shape, and I had not written the equivalent
+guard.
+
+The claim was also load-bearing in a way I had not noticed. It is the
+justification for the whole client-side signing architecture, and that
+architecture was impossible to build until this was fixed.
+
+### Fix
+- `bytesToBase64` / `base64ToBytes` in `core/crypto/bytes.ts`. `Buffer` is
+  Node-only and `btoa`/`atob` are browser-only, so implementing it removes the
+  question entirely.
+- The keystore now uses **`@noble/hashes` scrypt** and **WebCrypto AES-GCM**,
+  both identical across Node, browsers, and React Native. (WebCrypto offers
+  only PBKDF2 as a KDF, which is precisely the thing being avoided — hence
+  noble for the KDF and WebCrypto for the cipher.)
+- `SubtleCrypto` is declared structurally rather than importing `lib.dom`,
+  so naming one interface does not make every browser global visible to code
+  that must not rely on them.
+
+### Regression test
+`tests/cryptography/portability.test.ts` — a source scan asserting no `node:`
+import, no `Buffer`, no Node globals, **and** no DOM globals, since portable
+means both directions. `chain/bitcoinRpc.ts` is allowlisted narrowly, with a
+backstop asserting the allowlisted file exists so the guard cannot cover
+nothing (the VEY-001 lesson).
+
+Plus a differential test proving the hand-written base64 matches `Buffer`
+across 200 random inputs and every padding case.
+
+### Lesson
+**A claim in documentation is an assertion nobody is running.** The invariants
+that survived — no `Math.random()`, reference isolation — survived because each
+had a test. This one had a paragraph.
+
+Anything stated as a structural guarantee should either have a guard or be
+rewritten as an intention. "core/ is portable" was the former in tone and the
+latter in fact.
+
+---
+
 ## Findings that were NOT defects
 
 Recorded because their absence is itself informative.

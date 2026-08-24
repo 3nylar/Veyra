@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Prepare, review, broadcast — and handle the four ways it can refuse." />
+    <title>Guide: send bitcoin — Veyra API</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="assets/docs.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button class="menu-toggle" aria-label="Menu" aria-expanded="false">☰</button>
+      <a class="brand" href="introduction">
+        <span class="brand-mark">Veyra</span><span class="brand-kind">Docs</span>
+      </a>
+      <nav class="topnav">
+        <a href="api-reference">API reference</a>
+        <a href="changelog">Changelog</a>
+        <a href="https://github.com/3nylar/Veyra" rel="noopener noreferrer" target="_blank">GitHub</a>
+        <button class="theme-toggle" aria-label="Toggle theme">◐</button>
+      </nav>
+    </header>
+
+    <div class="layout">
+      <nav class="sidebar" aria-label="Documentation">
+      <div class="nav-group">
+        <h4>Get started</h4>
+        <a href="introduction">Introduction</a><a href="quickstart">Quickstart</a><a href="authentication">Authentication</a><a href="environments">Environments</a>
+      </div>
+      <div class="nav-group">
+        <h4>Core concepts</h4>
+        <a href="custody-model">The custody model</a><a href="transaction-lifecycle">Transaction lifecycle</a><a href="amounts">Amounts and precision</a><a href="errors">Errors</a><a href="rate-limits">Rate limits</a>
+      </div>
+      <div class="nav-group">
+        <h4>Guides</h4>
+        <a href="guide-receive">Guide: receive bitcoin</a><a href="guide-send" class="current" aria-current="page">Guide: send bitcoin</a><a href="guide-sync">Guide: sync with a chain</a>
+      </div>
+      <div class="nav-group">
+        <h4>Reference</h4>
+        <a href="api-reference">API reference</a><a href="changelog">Changelog</a>
+      </div></nav>
+
+      <main class="content">
+        <p class="eyebrow">Guides</p>
+        <h1>Guide: send bitcoin</h1>
+        <p class="lede">Prepare, review, broadcast — and handle the four ways it can refuse.</p>
+        
+<h2 id="prepare"><a class="anchor" href="#prepare" aria-label="Link to this section">#</a>1. Prepare</h2>
+<div class="code-block"><span class="code-lang">http</span><pre>POST /transactions/prepare
+{ "to": "bcrt1q...", "amount": "100000", "feeRate": 5 }</pre></div>
+<p>Builds and signs. <strong>Nothing is broadcast.</strong></p>
+
+<h2 id="review"><a class="anchor" href="#review" aria-label="Link to this section">#</a>2. Show the review</h2>
+<div class="code-block"><span class="code-lang">json</span><pre>{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"3f2a4c8e..."</span>,
+  <span class="tok-key">"expiresAt"</span>: <span class="tok-str">"2026-08-20T12:34:56.000Z"</span>,
+  <span class="tok-key">"amount"</span>: <span class="tok-str">"100000"</span>,
+  <span class="tok-key">"fee"</span>: <span class="tok-str">"705"</span>,
+  <span class="tok-key">"total"</span>: <span class="tok-str">"100705"</span>,
+  <span class="tok-key">"remainingBalance"</span>: <span class="tok-str">"899295"</span>,
+  <span class="tok-key">"change"</span>: <span class="tok-str">"899295"</span>,
+  <span class="tok-key">"feeRate"</span>: <span class="tok-num">5</span>,
+  <span class="tok-key">"vsize"</span>: <span class="tok-num">141</span>,
+  <span class="tok-key">"txid"</span>: <span class="tok-str">"a1b2c3..."</span>
+}</pre></div>
+<div class="callout" data-tone="teal">Show <strong>total</strong>, not just amount. It is the number
+that leaves the wallet, and hiding the fee is how users are surprised.</div>
+
+<h2 id="send"><a class="anchor" href="#send" aria-label="Link to this section">#</a>3. Broadcast by id</h2>
+<div class="code-block"><span class="code-lang">http</span><pre>POST /transactions/send
+{ "id": "3f2a4c8e..." }</pre></div>
+<p>No other field is accepted. The bytes were fixed at prepare time.</p>
+
+<h2 id="refusals"><a class="anchor" href="#refusals" aria-label="Link to this section">#</a>The four refusals</h2>
+<table>
+  <tr><th>Response</th><th>Cause</th><th>What to tell the user</th></tr>
+  <tr><td><code>422</code> insufficient funds</td><td>Amount plus fee exceeds spendable balance</td><td>Show spendable, not total — the difference is usually unconfirmed coins</td></tr>
+  <tr><td><code>422</code> dust threshold</td><td>Amount below 294 sat</td><td>The network will not relay it</td></tr>
+  <tr><td><code>422</code> invalid address</td><td>Wrong network, or a failed checksum</td><td>Re-paste; do not retype</td></tr>
+  <tr><td><code>404</code> on send</td><td>Expired, cancelled, or already sent</td><td>Prepare again</td></tr>
+</table>
+
+<h2 id="fees"><a class="anchor" href="#fees" aria-label="Link to this section">#</a>Choosing a fee rate</h2>
+<table>
+  <tr><th>Rate</th><th>Expectation</th></tr>
+  <tr><td>1 sat/vB</td><td>The relay minimum. Below this it will not propagate at all.</td></tr>
+  <tr><td>2 sat/vB</td><td>Hours to a day</td></tr>
+  <tr><td>8 sat/vB</td><td>Within a few blocks</td></tr>
+  <tr><td>20 sat/vB</td><td>Next block or two</td></tr>
+</table>
+<div class="callout" data-tone="warning"><strong>These are static figures, not live estimates.</strong>
+Real estimation needs mempool data, which Veyra does not yet fetch. During
+congestion they will be too low.</div>
+
+<h2 id="rbf"><a class="anchor" href="#rbf" aria-label="Link to this section">#</a>Replace-by-fee is on</h2>
+<p>
+  Transactions are built with sequence <code>0xfffffffd</code>, signalling
+  BIP-125. A transaction stuck at too low a fee can otherwise be unspendable
+  for days with no recourse. (Fee bumping is not yet exposed as an endpoint.)
+</p>
+
+<h2 id="cancel"><a class="anchor" href="#cancel" aria-label="Link to this section">#</a>Cancelling</h2>
+<div class="code-block"><span class="code-lang">http</span><pre>DELETE /transactions/{id}</pre></div>
+<p>Releases the held coins immediately rather than waiting for expiry. Nothing was broadcast, so there is nothing to undo.</p>
+        
+    <nav class="pager">
+      <a class="pager-link" href="guide-receive"><span>Previous</span><strong>Guide: receive bitcoin</strong></a>
+      <a class="pager-link next" href="guide-sync"><span>Next</span><strong>Guide: sync with a chain</strong></a>
+    </nav>
+      </main>
+
+      <aside class="toc">
+           <h5>On this page</h5>
+           <a href="#prepare">1. Prepare</a><a href="#review">2. Show the review</a><a href="#send">3. Broadcast by id</a><a href="#refusals">The four refusals</a><a href="#fees">Choosing a fee rate</a><a href="#rbf">Replace-by-fee is on</a><a href="#cancel">Cancelling</a>
+         </aside>
+    </div>
+
+    <script src="assets/docs.js" type="module"></script>
+  </body>
+</html>

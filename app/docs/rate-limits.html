@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="120 requests per minute, and an honest account of what that protects." />
+    <title>Rate limits — Veyra API</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="assets/docs.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button class="menu-toggle" aria-label="Menu" aria-expanded="false">☰</button>
+      <a class="brand" href="introduction">
+        <span class="brand-mark">Veyra</span><span class="brand-kind">Docs</span>
+      </a>
+      <nav class="topnav">
+        <a href="api-reference">API reference</a>
+        <a href="changelog">Changelog</a>
+        <a href="https://github.com/3nylar/Veyra" rel="noopener noreferrer" target="_blank">GitHub</a>
+        <button class="theme-toggle" aria-label="Toggle theme">◐</button>
+      </nav>
+    </header>
+
+    <div class="layout">
+      <nav class="sidebar" aria-label="Documentation">
+      <div class="nav-group">
+        <h4>Get started</h4>
+        <a href="introduction">Introduction</a><a href="quickstart">Quickstart</a><a href="authentication">Authentication</a><a href="environments">Environments</a>
+      </div>
+      <div class="nav-group">
+        <h4>Core concepts</h4>
+        <a href="custody-model">The custody model</a><a href="transaction-lifecycle">Transaction lifecycle</a><a href="amounts">Amounts and precision</a><a href="errors">Errors</a><a href="rate-limits" class="current" aria-current="page">Rate limits</a>
+      </div>
+      <div class="nav-group">
+        <h4>Guides</h4>
+        <a href="guide-receive">Guide: receive bitcoin</a><a href="guide-send">Guide: send bitcoin</a><a href="guide-sync">Guide: sync with a chain</a>
+      </div>
+      <div class="nav-group">
+        <h4>Reference</h4>
+        <a href="api-reference">API reference</a><a href="changelog">Changelog</a>
+      </div></nav>
+
+      <main class="content">
+        <p class="eyebrow">Core concepts</p>
+        <h1>Rate limits</h1>
+        <p class="lede">120 requests per minute, and an honest account of what that protects.</p>
+        
+<p>
+  A fixed window of <strong>120 requests per minute</strong> per client address.
+  Exceeding it returns <code>429 RATE_LIMITED</code>.
+</p>
+
+<h2 id="before-auth"><a class="anchor" href="#before-auth" aria-label="Link to this section">#</a>Applied before authentication</h2>
+<p>
+  Deliberately. If failed auth did not consume an allowance, an attacker could
+  brute-force tokens at full speed while never appearing to use the API.
+  Preflight <code>OPTIONS</code> requests are counted too, so they cannot become
+  a free channel.
+</p>
+
+<h2 id="identity"><a class="anchor" href="#identity" aria-label="Link to this section">#</a>Identity is the socket address only</h2>
+<div class="callout" data-tone="warning"><code>X-Forwarded-For</code> is <strong>deliberately
+ignored</strong>. It is client-controlled: honouring it would let an attacker
+mint a fresh identity per request and bypass the limiter entirely. Behind a
+trusted proxy you must configure that proxy's address explicitly — which is
+<strong>not implemented</strong>.</div>
+
+<h2 id="limitations"><a class="anchor" href="#limitations" aria-label="Link to this section">#</a>What this does not do</h2>
+<p>Stated plainly, because a limiter presented as stronger than it is produces false confidence.</p>
+<ul>
+  <li><strong>Fixed windows permit a burst.</strong> A client can send the full
+      allowance at the end of one window and again at the start of the next,
+      briefly achieving twice the intended rate. A sliding window or token
+      bucket avoids this.</li>
+  <li><strong>In-memory and per-process.</strong> It resets on restart and does
+      not coordinate across instances. Anything facing the real internet needs
+      a shared store.</li>
+  <li><strong>Not a defence against a distributed attacker.</strong> It
+      addresses casual abuse and runaway clients.</li>
+</ul>
+<p>
+  The buckets are evicted once the map exceeds a thousand entries, so the
+  limiter cannot itself become a memory-exhaustion vector — a defence becoming
+  the vulnerability is a common enough pattern to guard against explicitly.
+</p>
+        
+    <nav class="pager">
+      <a class="pager-link" href="errors"><span>Previous</span><strong>Errors</strong></a>
+      <a class="pager-link next" href="guide-receive"><span>Next</span><strong>Guide: receive bitcoin</strong></a>
+    </nav>
+      </main>
+
+      <aside class="toc">
+           <h5>On this page</h5>
+           <a href="#before-auth">Applied before authentication</a><a href="#identity">Identity is the socket address only</a><a href="#limitations">What this does not do</a>
+         </aside>
+    </div>
+
+    <script src="assets/docs.js" type="module"></script>
+  </body>
+</html>
