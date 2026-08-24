@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Veyra — a self-custodial Bitcoin wallet built as a cryptography learning laboratory.",
+  "description": "Veyra \u2014 a self-custodial Bitcoin wallet built as a cryptography learning laboratory.",
   "license": "MIT",
   "engines": {
     "node": ">=20"

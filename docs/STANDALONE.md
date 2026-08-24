@@ -11,6 +11,7 @@ Output lands in `standalone/`:
 
 | File | Holds keys | Network access |
 | --- | --- | --- |
+| `veyra.html` | **Yes — your seed** | Pinned allowlist |
 | `veyra-sign.html` | **Yes — your seed** | **None.** `connect-src 'none'` |
 | `veyra-watch.html` | No | Yes — the Esplora you name |
 | `SHA256SUMS` | — | — |
@@ -18,7 +19,72 @@ Output lands in `standalone/`:
 
 ---
 
-## Why there are two files and not one
+## Which file do I give people?
+
+**`veyra.html`** — for almost everyone. One file, open it, use it. Keys are
+generated in the browser, encrypted with a passphrase, and stored locally.
+There is no signup and no server holding funds.
+
+**`veyra-sign.html` + `veyra-watch.html`** — for someone holding an amount they
+would mind losing. Splits keys and network access across two machines. More
+secure, more friction.
+
+Ship the first. Mention the second exists.
+
+---
+
+## What secures the single-page wallet
+
+It holds keys **and** reaches the network — the combination the two-file setup
+deliberately avoids. That trade-off is made because a wallet requiring a second
+machine is a wallet nobody uses. Four things make it defensible:
+
+### 1. A pinned `connect-src` — the important one
+
+```
+connect-src https://blockstream.info https://mempool.space
+            http://localhost:3002 http://127.0.0.1:3002;
+```
+
+The exact endpoints this page may contact. **Not** `https:`, not a wildcard.
+
+Injected script cannot POST your seed to an attacker's server — the browser
+refuses the request before it leaves. An attacker would have to exfiltrate
+through Blockstream or mempool.space, who are not helping them.
+
+The build **refuses to emit the file** if this becomes a wildcard. That check
+was itself broken for a while, matching its own explanatory comment instead of
+the directive — see [ATTACKS.md](ATTACKS.md) VEY-016.
+
+Adding a chain endpoint means editing that line and rebuilding. Each origin
+added is one more place data could theoretically be smuggled to.
+
+### 2. No third-party code
+
+No CDN, no analytics, no fonts, no tag manager. Every byte ships in one file,
+so there is no upstream to compromise.
+
+### 3. Encrypted at rest
+
+The seed in `localStorage` is scrypt (N=2¹⁷) + AES-256-GCM. localStorage is
+readable by any script on the origin — acceptable **only** because what is
+there is ciphertext.
+
+### 4. Auto-lock after 10 minutes
+
+The decrypted seed is dropped. This shortens the window in which a memory read
+succeeds; it does not prevent one.
+
+### What it cannot do
+
+A compromised browser, a malicious extension with page access, or malware
+reading process memory all defeat this. A hardware wallet keeps the key in a
+chip that never exposes it; a browser cannot. That is why the two-file path
+still exists.
+
+---
+
+## Why the OTHER two are separate files
 
 This is the central design decision, and it is not caution — it is the only
 arrangement in which either guarantee is real.

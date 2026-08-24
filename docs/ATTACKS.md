@@ -737,6 +737,62 @@ Which is an argument for printing sizes in build output at all.
 
 ---
 
+## VEY-016 — A security guard was reading its own explanatory comment
+
+**Severity:** Medium (the control it protected could be removed silently) ·
+**Found:** increment 19, by testing whether the guard actually fired
+
+### Failure
+None visible. The build passed, and would have passed on a wallet with no
+protection at all.
+
+### Root cause
+`veyra.html` holds keys **and** reaches the network. Its only defence against
+exfiltration is a **pinned `connect-src`** — an explicit allowlist of chain
+endpoints, so injected script cannot POST a seed anywhere else. Replace that
+with `connect-src https:` and the defence is gone.
+
+So the build asserts the allowlist is pinned:
+
+```ts
+const match = /connect-src ([^;"]+)/.exec(html);
+```
+
+Run against the whole document, the first match was the **HTML comment above
+the tag** — the paragraph explaining why the allowlist must be pinned. That
+text contains no wildcard, so the check passed on prose and never examined the
+directive.
+
+Planting `connect-src https:` confirmed it: the build emitted the file without
+complaint.
+
+### Fix
+Parse the actual `<meta>` `content` attribute, then the `connect-src`
+directive within it, then check each source token against `*`, `https:`,
+`http:`, `data:` and `blob:`.
+
+Verified in **both** directions, which is the part that matters:
+
+- normal build → passes, emits `veyra.html`
+- `connect-src https:` planted → `Error: veyra.html has a WILDCARD connect-src: https:. Refusing to emit it.`
+
+### Lesson
+**A guard that has never been seen to fail has not been tested.** This one was
+written, read carefully, and looked right. It was verified only when I planted
+the failure it existed to catch — and it did not catch it.
+
+The specific trap is worth naming: **regexes over a whole document match
+documentation about the thing before they match the thing.** The better the
+comment explaining a security control, the more likely a naive scan finds the
+comment first. Parse the structure, not the text.
+
+This is the third guard-quality finding (VEY-001 vacuous filter, VEY-015 wrong
+layer, VEY-016 wrong target). The pattern across all three: *the guard ran, the
+guard passed, and the guard checked nothing.* A green build is evidence only if
+the check has been observed to go red.
+
+---
+
 ## Findings that were NOT defects
 
 Recorded because their absence is itself informative.

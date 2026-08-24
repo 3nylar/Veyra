@@ -69,6 +69,8 @@ export default defineConfig({
         rollupOptions: {
           input: {
             index: resolve(__dirname, "index.html"),
+            // The main product: a single-page wallet anyone can open.
+            wallet: resolve(__dirname, "wallet.html"),
             signer: resolve(__dirname, "signer.html"),
             watch: resolve(__dirname, "watch.html"),
             ...docsEntries(),

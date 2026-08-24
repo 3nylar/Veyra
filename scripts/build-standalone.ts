@@ -49,6 +49,11 @@ const outDir = join(root, "standalone");
 /** Pages that become self-contained files, and what each is for. */
 const PAGES = [
   {
+    source: "wallet.html",
+    output: "veyra.html",
+    role: "FULL WALLET — keys in this browser, pinned network allowlist",
+  },
+  {
     source: "signer.html",
     output: "veyra-sign.html",
     role: "OFFLINE SIGNER — holds your seed, cannot reach the network",
@@ -147,6 +152,37 @@ function assertSelfContained(html: string, name: string): void {
   }
 }
 
+/**
+ * The full wallet holds keys AND reaches the network, so its only defence
+ * against exfiltration is a PINNED connect-src. A wildcard would silently
+ * remove that, so the build refuses to emit one.
+ */
+function assertPinnedConnectSrc(html: string): void {
+  // Parse the actual <meta> content attribute.
+  //
+  // An earlier version matched `/connect-src ([^;"]+)/` against the whole
+  // document — and the first hit was the EXPLANATORY COMMENT above the tag,
+  // which contains no wildcard and therefore always passed. The guard was
+  // reading prose. Verified by planting `connect-src https:` and confirming
+  // the build now fails.
+  const meta = /<meta[^>]+http-equiv="Content-Security-Policy"[^>]+content="([^"]+)"/i.exec(html);
+  if (!meta) throw new Error("veyra.html has no Content-Security-Policy meta tag");
+
+  const directive = /(?:^|;)\s*connect-src\s+([^;]+)/i.exec(meta[1]!);
+  if (!directive) throw new Error("veyra.html has no connect-src directive at all");
+
+  const sources = directive[1]!.trim().split(/\s+/);
+  const wildcards = sources.filter((source) => /^(\*|https?:|data:|blob:)$/i.test(source));
+  if (wildcards.length > 0) {
+    throw new Error(
+      `veyra.html has a WILDCARD connect-src: ${wildcards.join(", ")}. This page ` +
+        `holds keys; a wildcard lets injected script post them anywhere. ` +
+        `Refusing to emit it.`,
+    );
+  }
+  if (sources.length === 0) throw new Error("veyra.html has an empty connect-src");
+}
+
 /** Confirm the signer's exfiltration guarantee survived bundling. */
 function assertSignerIsOffline(html: string): void {
   if (!/connect-src\s+'none'/.test(html)) {
@@ -167,6 +203,7 @@ for (const page of PAGES) {
   const html = inline(readFileSync(sourcePath, "utf8"), distDir);
   assertSelfContained(html, page.output);
   if (page.output === "veyra-sign.html") assertSignerIsOffline(html);
+  if (page.output === "veyra.html") assertPinnedConnectSrc(html);
 
   const target = join(outDir, page.output);
   writeFileSync(target, html, "utf8");
