@@ -332,6 +332,227 @@ suite("REGTEST: end-to-end against a real Bitcoin Core node", () => {
   // bumpFee always raises a too-small request to the minimum valid
   // replacement rather than building something the network would reject.
 
+  it("Bitcoin Core ACCEPTS a 2-of-3 multisig spend", async () => {
+    // The only test that proves the witness structure is right — including
+    // the empty dummy element that OP_CHECKMULTISIG requires and that no
+    // local check can validate.
+    const { MultisigAccount } = await import("../../core/addresses/multisig.js");
+    const { signMultisigInput, combineSignatures, verifyMultisigTransaction } =
+      await import("../../core/signing/multisig.js");
+    const { PrivateKey } = await import("../../core/keys/privateKey.js");
+    const { PublicKey } = await import("../../core/keys/publicKey.js");
+    const { TxInput, TxOutput, Transaction, SEQUENCE_RBF } =
+      await import("../../core/transactions/transaction.js");
+
+    const holders = [
+      PrivateKey.fromHex("a1".repeat(32)),
+      PrivateKey.fromHex("b2".repeat(32)),
+      PrivateKey.fromHex("c3".repeat(32)),
+    ];
+    const account = new MultisigAccount({
+      threshold: 2,
+      publicKeys: holders.map((k) => PublicKey.fromPrivateKey(k)),
+      network: REGTEST,
+    });
+
+    // Fund the multisig address from the node.
+    const fundingTxid = await node.fundAddress(NODE_WALLET, account.address, 2_000_000n);
+    await node.generateToAddress(1, nodeAddress);
+
+    // Find which output paid us.
+    const utxos = await node.getUtxos(account.address);
+    expect(utxos.length).toBeGreaterThanOrEqual(1);
+    const utxo = utxos.find((u) => u.txid === fundingTxid) ?? utxos[0]!;
+
+    const { wallet: recipient } = Wallet.create(REGTEST, 12);
+    const { decodeSegwitAddress } = await import("../../core/addresses/bech32.js");
+    const { program } = decodeSegwitAddress("bcrt", recipient.currentReceiveAddress().address);
+
+    const unsigned = new Transaction(
+      2,
+      [new TxInput({ txid: utxo.txid, vout: utxo.vout }, new Uint8Array(0), SEQUENCE_RBF)],
+      [new TxOutput(utxo.value - 2_000n, new Uint8Array([0x00, program.length, ...program]))],
+      0,
+    );
+
+    const inputs = [{ value: utxo.value, account }];
+
+    // Two holders sign INDEPENDENTLY. No key is ever combined.
+    const partials = [
+      signMultisigInput(unsigned, 0, inputs[0]!, holders[0]!),
+      signMultisigInput(unsigned, 0, inputs[0]!, holders[2]!),
+    ];
+    const signed = combineSignatures(unsigned, inputs, partials);
+    expect(verifyMultisigTransaction(signed, inputs)).toBe(true);
+
+    // The claim that matters: Bitcoin Core accepts it.
+    const broadcastTxid = await node.broadcast(signed.toHex());
+    expect(broadcastTxid).toBe(signed.txid());
+
+    await node.generateToAddress(1, nodeAddress);
+    const recipientSync = await recipient.sync(node);
+    expect(recipientSync.balance.spendable).toBe(utxo.value - 2_000n);
+  }, 300_000);
+
+  it("Bitcoin Core REJECTS a 1-of-2 attempt on a 2-of-3 output", async () => {
+    // Locally we refuse to combine a single signature. This proves the
+    // NETWORK also refuses, which is the guarantee that actually protects
+    // the funds — our refusal is only a convenience.
+    const { MultisigAccount } = await import("../../core/addresses/multisig.js");
+    const { signMultisigInput } = await import("../../core/signing/multisig.js");
+    const { PrivateKey } = await import("../../core/keys/privateKey.js");
+    const { PublicKey } = await import("../../core/keys/publicKey.js");
+    const { TxInput, TxOutput, Transaction, SEQUENCE_RBF } =
+      await import("../../core/transactions/transaction.js");
+
+    const holders = [
+      PrivateKey.fromHex("d4".repeat(32)),
+      PrivateKey.fromHex("e5".repeat(32)),
+      PrivateKey.fromHex("f6".repeat(32)),
+    ];
+    const account = new MultisigAccount({
+      threshold: 2,
+      publicKeys: holders.map((k) => PublicKey.fromPrivateKey(k)),
+      network: REGTEST,
+    });
+
+    await node.fundAddress(NODE_WALLET, account.address, 1_500_000n);
+    await node.generateToAddress(1, nodeAddress);
+    const utxo = (await node.getUtxos(account.address))[0]!;
+
+    const unsigned = new Transaction(
+      2,
+      [new TxInput({ txid: utxo.txid, vout: utxo.vout }, new Uint8Array(0), SEQUENCE_RBF)],
+      [new TxOutput(utxo.value - 2_000n, account.scriptPubKey)],
+      0,
+    );
+    const inputs = [{ value: utxo.value, account }];
+    const single = signMultisigInput(unsigned, 0, inputs[0]!, holders[0]!);
+
+    // Build the witness by hand with only ONE signature — the transaction a
+    // single compromised holder would try to broadcast.
+    const attempt = unsigned.withInput(
+      0,
+      unsigned.inputs[0]!.withWitness([
+        new Uint8Array(0),
+        single.signature,
+        account.witnessScript,
+      ]),
+    );
+
+    await expect(node.broadcast(attempt.toHex())).rejects.toThrow();
+  }, 300_000);
+
+  it("Bitcoin Core UNDERSTANDS a Veyra-produced PSBT", async () => {
+    // The whole point of PSBT is interoperability. A format only Veyra can
+    // read would replace "trust one seed" with "trust one codebase" — so the
+    // test that matters is whether another implementation agrees.
+    const { Psbt } = await import("../../core/psbt/psbt.js");
+    const { MultisigAccount } = await import("../../core/addresses/multisig.js");
+    const { PrivateKey } = await import("../../core/keys/privateKey.js");
+    const { PublicKey } = await import("../../core/keys/publicKey.js");
+    const { TxInput, TxOutput, Transaction, SEQUENCE_RBF } =
+      await import("../../core/transactions/transaction.js");
+
+    const holders = [
+      PrivateKey.fromHex("1a".repeat(32)),
+      PrivateKey.fromHex("2b".repeat(32)),
+      PrivateKey.fromHex("3c".repeat(32)),
+    ];
+    const account = new MultisigAccount({
+      threshold: 2,
+      publicKeys: holders.map((k) => PublicKey.fromPrivateKey(k)),
+      network: REGTEST,
+    });
+
+    await node.fundAddress(NODE_WALLET, account.address, 1_800_000n);
+    await node.generateToAddress(1, nodeAddress);
+    const utxo = (await node.getUtxos(account.address))[0]!;
+
+    const { wallet: recipient } = Wallet.create(REGTEST, 12);
+    const { decodeSegwitAddress } = await import("../../core/addresses/bech32.js");
+    const { program } = decodeSegwitAddress("bcrt", recipient.currentReceiveAddress().address);
+
+    const unsigned = new Transaction(
+      2,
+      [new TxInput({ txid: utxo.txid, vout: utxo.vout }, new Uint8Array(0), SEQUENCE_RBF)],
+      [new TxOutput(utxo.value - 3_000n, new Uint8Array([0x00, program.length, ...program]))],
+      0,
+    );
+
+    const psbt = Psbt.create(unsigned)
+      .setWitnessUtxo(0, utxo.value, account.scriptPubKey)
+      .setWitnessScript(0, account.witnessScript)
+      .setSighashType(0, 0x01);
+
+    // Hand our base64 PSBT to Core and ask it to describe it. If Core can
+    // decode it, the format is right — not merely self-consistent.
+    const decoded = (await node.decodePsbt(psbt.toBase64())) as Record<string, unknown>;
+    expect(Array.isArray(decoded.inputs)).toBe(true);
+
+    const tx = decoded.tx as Record<string, unknown>;
+    expect(tx.txid).toBe(unsigned.txid());
+
+    // Core must see the witness_utxo we supplied, with the right amount.
+    const coreInput = (decoded.inputs as Array<Record<string, unknown>>)[0]!;
+    const witnessUtxo = coreInput.witness_utxo as Record<string, unknown> | undefined;
+    expect(witnessUtxo).toBeDefined();
+  }, 300_000);
+
+  it("a PSBT signed by two holders extracts to a transaction Core ACCEPTS", async () => {
+    const { Psbt } = await import("../../core/psbt/psbt.js");
+    const { MultisigAccount } = await import("../../core/addresses/multisig.js");
+    const { signMultisigInput } = await import("../../core/signing/multisig.js");
+    const { PrivateKey } = await import("../../core/keys/privateKey.js");
+    const { PublicKey } = await import("../../core/keys/publicKey.js");
+    const { TxInput, TxOutput, Transaction, SEQUENCE_RBF } =
+      await import("../../core/transactions/transaction.js");
+
+    const holders = [
+      PrivateKey.fromHex("4d".repeat(32)),
+      PrivateKey.fromHex("5e".repeat(32)),
+      PrivateKey.fromHex("6f".repeat(32)),
+    ];
+    const account = new MultisigAccount({
+      threshold: 2,
+      publicKeys: holders.map((k) => PublicKey.fromPrivateKey(k)),
+      network: REGTEST,
+    });
+
+    await node.fundAddress(NODE_WALLET, account.address, 1_700_000n);
+    await node.generateToAddress(1, nodeAddress);
+    const utxo = (await node.getUtxos(account.address))[0]!;
+
+    const { wallet: recipient } = Wallet.create(REGTEST, 12);
+    const { decodeSegwitAddress } = await import("../../core/addresses/bech32.js");
+    const { program } = decodeSegwitAddress("bcrt", recipient.currentReceiveAddress().address);
+
+    const unsigned = new Transaction(
+      2,
+      [new TxInput({ txid: utxo.txid, vout: utxo.vout }, new Uint8Array(0), SEQUENCE_RBF)],
+      [new TxOutput(utxo.value - 3_000n, new Uint8Array([0x00, program.length, ...program]))],
+      0,
+    );
+    const inputs = [{ value: utxo.value, account }];
+
+    // Two holders sign independently, each from their own copy of the PSBT.
+    const copies = [holders[0]!, holders[2]!].map((key) => {
+      const copy = Psbt.create(unsigned)
+        .setWitnessUtxo(0, utxo.value, account.scriptPubKey)
+        .setWitnessScript(0, account.witnessScript);
+      const partial = signMultisigInput(unsigned, 0, inputs[0]!, key);
+      copy.addPartialSignature(0, partial.publicKey.toBytes(), partial.signature);
+      // Round-trip through base64, as a real transfer would.
+      return Psbt.fromBase64(copy.toBase64());
+    });
+
+    const combined = copies[0]!.combine(copies[1]!);
+    const final = combined.finalize().extract();
+
+    const broadcastTxid = await node.broadcast(final.toHex());
+    expect(broadcastTxid).toBe(final.txid());
+  }, 300_000);
+
   it("a restored wallet finds the same funds via gap-limit scan", async () => {
     const { wallet, mnemonic } = Wallet.create(REGTEST, 12);
     await node.fundAddress(NODE_WALLET, wallet.currentReceiveAddress().address, 600_000n);

@@ -51,6 +51,11 @@ a library.
 | Live fee estimation | ✅ | `core/chain/` | [api/README.md](api/README.md) |
 | RBF fee bumping (BIP-125) | ✅ | `core/wallet/wallet.ts` | [api/README.md](api/README.md) |
 | Taproot (BIP-86 / BIP-341) | ✅ | `core/addresses/taproot.ts` | [§19](docs/CRYPTOGRAPHY.md) |
+| Spending policy engine | ✅ | `core/policy/` | [api/README.md](api/README.md) |
+| P2WSH multisig (t-of-n) | ✅ | `core/addresses/multisig.ts` | [docs/MULTISIG.md](docs/MULTISIG.md) |
+| PSBT (BIP-174) | ✅ | `core/psbt/psbt.ts` | [docs/MULTISIG.md](docs/MULTISIG.md#psbt) |
+| BIP-48 multisig accounts | ✅ | `core/addresses/bip48.ts` | [docs/MULTISIG.md](docs/MULTISIG.md#setting-one-up-bip-48) |
+| Extended keys (xpub/xprv) | ✅ | `core/derivation/bip32.ts` | — |
 | Lightning | ⬜ Not started | — | — |
 
 ---
@@ -136,7 +141,7 @@ npm run app          # start the interface — see app/README.md
                      #   API docs: http://127.0.0.1:5173/docs/
 ```
 
-Current suite: **690 tests across 23 files** — 676 that need no node, plus 14
+Current suite: **843 tests across 27 files** — 825 that need no node, plus 18
 regtest integration tests that require a running Bitcoin Core node and are
 **the most important tests in the repository**. See
 [docs/REGTEST.md](docs/REGTEST.md).
@@ -184,6 +189,7 @@ tested only against itself:
 | BIP-173 / BIP-350 | Valid **and invalid** Bech32/Bech32m vectors |
 | BIP-143 | Official native-P2WPKH sighash vector (`c37af311…`) |
 | BIP-86 | Published Taproot addresses — all three vectors |
+| BIP-32 xpub/xprv | Published extended-key strings |
 
 ---
 

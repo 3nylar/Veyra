@@ -86,6 +86,7 @@ All require `Authorization: Bearer <token>` except `/health`.
 | GET | `/wallet/utxos` | Unspent outputs (no derivation paths) |
 | GET | `/wallet/security` | Verifiable security state and warnings |
 | GET | `/wallet/fees` | Fee estimates, with `isLive` telling you whether they are real |
+| GET | `/wallet/policy` | Active spending limits. **Read-only** — see below |
 | GET | `/transactions` | Transaction history with direction and net value |
 | GET | `/transactions/replaceable` | Transactions from this session that can still be fee-bumped |
 | POST | `/transactions/bump` | Replace a stuck transaction with a higher-fee version (BIP-125) |
@@ -194,6 +195,24 @@ Deliberate ambiguities, each of which would otherwise be an oracle:
 Run them: `npm run test:api` — 55 tests, each written as an attack.
 
 ---
+
+## Spending policy
+
+Optional limits — per-transaction cap, rolling velocity window, and a delay on
+first-time destinations — evaluated after signing but before anything is
+broadcast.
+
+**Read-only over HTTP, deliberately.** If limits could be raised through the
+API, an attacker with a stolen token would raise them before spending and the
+control would protect nothing. Policy is configured where the wallet starts, by
+whoever owns the host.
+
+**What it defends against:** a stolen API token, a confused client, an operator
+mistake, and bugs in Veyra's own transaction logic.
+
+**What it does not:** a local attacker with process memory. They have the seed
+and will sign outside Veyra entirely — this code never runs. Describing a
+policy engine as protecting funds generally would be security theatre.
 
 ## Known limitations
 

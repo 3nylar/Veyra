@@ -561,6 +561,21 @@ export class BitcoinRpcChainSource implements ChainSource {
     return validateTxid(result, "sendtoaddress");
   }
 
+  /**
+   * Ask the node to decode a PSBT.
+   *
+   * The interoperability check that matters: if Bitcoin Core can read a PSBT
+   * Veyra produced, the format is correct rather than merely self-consistent.
+   * A format only Veyra understands would replace "trust one seed" with
+   * "trust one codebase".
+   */
+  async decodePsbt(base64: string): Promise<unknown> {
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
+      throw new ChainError("PSBT must be base64");
+    }
+    return this.call("decodepsbt", [base64]);
+  }
+
   /** A new address from the node's own wallet, for mining rewards. */
   async getNewNodeAddress(walletName: string): Promise<string> {
     this.assertRegtest("getNewNodeAddress");

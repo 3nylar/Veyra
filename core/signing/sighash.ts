@@ -126,8 +126,23 @@ export const SIGHASH_ANYONECANPAY = 0x80;
 export interface SignableInput {
   /** The value of the output being spent, in satoshis. Committed to by the signature. */
   readonly value: bigint;
-  /** HASH160 of the public key controlling this input. */
-  readonly publicKeyHash: Uint8Array;
+  /**
+   * HASH160 of the public key controlling this input. P2WPKH only.
+   *
+   * Ignored when `scriptCode` is supplied.
+   */
+  readonly publicKeyHash?: Uint8Array;
+  /**
+   * An explicit scriptCode, for script-based inputs such as P2WSH multisig.
+   *
+   * For P2WSH the scriptCode is the **witnessScript itself** — not its hash,
+   * and not wrapped in anything. That is what makes the signature commit to
+   * the exact spending conditions: change one public key in a multisig script
+   * and every existing signature stops verifying.
+   *
+   * When absent, a P2WPKH scriptCode is built from `publicKeyHash`.
+   */
+  readonly scriptCode?: Uint8Array;
 }
 
 /**
@@ -206,7 +221,15 @@ export function sighashPreimage(
 
   const input: TxInput = transaction.inputs[inputIndex]!;
   const digests = cache ?? new SighashCache(transaction);
-  const scriptCode = p2wpkhScriptCode(signable.publicKeyHash);
+
+  // An explicit scriptCode wins. Requiring one of the two, rather than
+  // defaulting silently, means a caller cannot accidentally sign a P2WSH
+  // input with a P2WPKH scriptCode — which produces a valid-looking signature
+  // that no node accepts.
+  if (!signable.scriptCode && !signable.publicKeyHash) {
+    throw new SighashError("either scriptCode or publicKeyHash must be supplied");
+  }
+  const scriptCode = signable.scriptCode ?? p2wpkhScriptCode(signable.publicKeyHash!);
 
   const writer = new ByteWriter();
   writer.writeUint32LE(transaction.version); //  1. nVersion

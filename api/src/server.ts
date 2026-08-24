@@ -99,6 +99,7 @@ export function createApiServer(config: ServerConfig): Server {
     { method: "GET", segments: ["wallet", "security"], handler: () => service.securityStatus() },
     { method: "POST", segments: ["wallet", "sync"], handler: () => service.sync() },
     { method: "GET", segments: ["wallet", "fees"], handler: () => service.feeEstimates() },
+    { method: "GET", segments: ["wallet", "policy"], handler: () => service.policyStatus() },
     { method: "GET", segments: ["transactions", "replaceable"], handler: () => ({ transactions: service.replaceable() }) },
     {
       method: "POST", segments: ["transactions", "bump"],

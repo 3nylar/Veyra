@@ -58,6 +58,10 @@ import { Transaction, TxInput, TxOutput, SEQUENCE_RBF } from "../transactions/tr
 import { signTransaction, verifyTransaction, calculateFee } from "../signing/signer.js";
 import { wipe } from "../crypto/entropy.js";
 import type { ChainSource, ChainTransaction, FeeEstimates } from "../chain/types.js";
+import {
+  SpendingPolicy, NO_LIMITS,
+  type PolicyDecision, type SpendRecord, type PolicyLimits,
+} from "../policy/spendingPolicy.js";
 import { ChainError } from "../chain/types.js";
 import { VeyraError } from "../errors/index.js";
 
@@ -94,6 +98,14 @@ export interface PreparedTransaction {
   readonly strategy: SelectionStrategy;
   /** Set when this is a BIP-125 replacement: the txid it supersedes. */
   readonly replaces?: string;
+  /**
+   * The spending-policy decision.
+   *
+   * `deny` never reaches here — it throws. A `delay` DOES: the transaction is
+   * built and signed, and the caller decides whether to hold it. See
+   * core/policy/spendingPolicy.ts on why Veyra decides but does not hold.
+   */
+  readonly policy?: PolicyDecision;
 }
 
 export class Wallet {
@@ -133,6 +145,17 @@ export class Wallet {
    * saying so is better than a user discovering it while a payment is stuck.
    */
   #broadcast = new Map<string, PreparedTransaction>();
+
+  /**
+   * Spending policy. Unrestricted unless one is set.
+   *
+   * Opt-in deliberately: a wallet that silently imposed caps nobody
+   * configured would be surprising in the worst way.
+   */
+  #policy: SpendingPolicy = new SpendingPolicy(NO_LIMITS);
+
+  /** Completed spends, for velocity accounting and known-recipient checks. */
+  #spendHistory: SpendRecord[] = [];
 
   private constructor(master: ExtendedKey, network: Network, accountIndex: number) {
     this.#master = master;
@@ -434,6 +457,16 @@ export class Wallet {
     // Record it so it can be fee-bumped if it gets stuck.
     this.#broadcast.set(prepared.txid, prepared);
 
+    // Record the completed spend. This is what makes a destination "known"
+    // for the new-recipient rule — and note it happens only on a SUCCESSFUL
+    // broadcast, so a blocked or failed attempt never grants that status.
+    this.#spendHistory.push({
+      amount: prepared.amount,
+      fee: prepared.fee,
+      recipient: prepared.recipient,
+      at: Date.now(),
+    });
+
     // A replacement supersedes what it replaced: the two spend the same
     // inputs, so only one can ever confirm. Dropping the original stops it
     // being offered for a second bump, which would build on a transaction the
@@ -443,6 +476,29 @@ export class Wallet {
     return reportedTxid;
   }
 
+
+  /** Install a spending policy. Replaces any existing one. */
+  setPolicy(limits: PolicyLimits): void {
+    this.#policy = new SpendingPolicy(limits);
+  }
+
+  /** The active policy, for display. */
+  get policy(): SpendingPolicy {
+    return this.#policy;
+  }
+
+  /**
+   * Completed spends this session.
+   *
+   * ⚠️ In-memory only. A restart clears the velocity window and forgets which
+   * destinations are known — so every recipient becomes "new" again. That is
+   * fail-SAFE (more delays, not fewer), but it also means the velocity cap
+   * resets, which is fail-open. Persisting this is a wallet-database feature
+   * that does not exist yet.
+   */
+  get spendHistory(): readonly SpendRecord[] {
+    return this.#spendHistory;
+  }
 
   /** Transactions broadcast in this session that could still be replaced. */
   get replaceable(): Array<{ txid: string; feeRate: number; fee: bigint; amount: bigint }> {
@@ -735,6 +791,8 @@ export class Wallet {
     feeRate: number;
     strategy?: SelectionStrategy;
     minConfirmations?: number;
+    /** Current time for policy evaluation. Supplied by tests; defaults to now. */
+    now?: number;
   }): PreparedTransaction {
     const { to, amount, feeRate } = options;
     const minConfirmations = options.minConfirmations ?? 1;
@@ -813,9 +871,23 @@ export class Wallet {
     // Catches estimation drift before broadcast, when it is still fixable.
     assertFeeMatchesEstimate(signed.vsize(), actualFee, feeRate);
 
+    // ── Policy, evaluated LAST ────────────────────────────────────────────
+    // After signing, because the real fee is only known once the transaction
+    // exists — and a cap that ignored the fee could be evaded with a large
+    // one. Nothing has been broadcast, so a denial here costs nothing.
+    const decision = this.#policy.evaluate(
+      { amount, fee: actualFee, recipient: to },
+      options.now ?? Date.now(),
+      this.#spendHistory,
+    );
+    if (decision.outcome === "deny") {
+      throw new WalletError(`Blocked by spending policy: ${decision.reason}`);
+    }
+
     const balanceBefore = this.balance(minConfirmations).spendable;
 
     return {
+      policy: decision,
       transaction: signed,
       txid: signed.txid(),
       hex: signed.toHex(),

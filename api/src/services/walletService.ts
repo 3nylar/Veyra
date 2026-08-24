@@ -81,6 +81,13 @@ export interface TransactionReview {
   readonly vsize: number;
   readonly inputCount: number;
   readonly txid: string;
+  /** Present only when the policy delayed the spend. Absent means allowed. */
+  readonly policy?: {
+    readonly outcome: string;
+    readonly rule: string;
+    readonly reason: string;
+    readonly releaseAt: string | null;
+  };
 }
 
 export class WalletService {
@@ -252,6 +259,18 @@ export class WalletService {
       vsize: prepared.vsize,
       inputCount: prepared.inputs.length,
       txid: prepared.txid,
+      ...(prepared.policy && prepared.policy.outcome !== "allow"
+        ? {
+            policy: {
+              outcome: prepared.policy.outcome,
+              rule: prepared.policy.rule,
+              reason: prepared.policy.reason,
+              releaseAt: prepared.policy.releaseAt
+                ? new Date(prepared.policy.releaseAt).toISOString()
+                : null,
+            },
+          }
+        : {}),
     };
   }
 
@@ -338,6 +357,22 @@ export class WalletService {
       vsize: prepared.vsize,
       inputCount: prepared.inputs.length,
       txid: prepared.txid,
+    };
+  }
+
+  /**
+   * The active spending policy, for display.
+   *
+   * READ-ONLY over HTTP, deliberately. If limits could be raised through the
+   * API, an attacker with a stolen token would simply raise them before
+   * spending — and the control would protect nothing. Policy is configured
+   * where the wallet is started, by whoever owns the host.
+   */
+  policyStatus(): Record<string, unknown> {
+    return {
+      ...this.wallet.policy.describe(),
+      recentSpends: this.wallet.spendHistory.length,
+      note: "Limits are read-only over the API and are set at startup.",
     };
   }
 

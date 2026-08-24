@@ -87,6 +87,7 @@ import { PrivateKey, CURVE_ORDER } from "../keys/privateKey.js";
 import { PublicKey } from "../keys/publicKey.js";
 import { hash160 } from "../crypto/hashes.js";
 import { bytesToBigIntBE, bigIntToBytesBE, concatBytes, bytesToHex } from "../crypto/bytes.js";
+import { base58CheckEncode, base58CheckDecode } from "../addresses/base58.js";
 import { wipe } from "../crypto/entropy.js";
 import { VeyraError } from "../errors/index.js";
 
@@ -390,7 +391,143 @@ export class ExtendedKey {
   get identifier(): string {
     return bytesToHex(this.fingerprint);
   }
+
+  /**
+   * Serialise as an extended PUBLIC key — an xpub.
+   *
+   * 78 bytes, Base58Check-encoded:
+   *
+   *     version(4) depth(1) parentFingerprint(4) childNumber(4)
+   *     chainCode(32) key(33)
+   *
+   * ⚠️ An xpub is not a secret, but it is NOT harmless either. It reveals
+   * every address in its subtree and every balance associated with them —
+   * publishing one hands an observer your entire wallet history. And combined
+   * with a single NON-HARDENED child private key it yields the parent private
+   * key by subtraction; see the hardening discussion above.
+   *
+   * Share it deliberately: with a watch-only service you have chosen, or with
+   * multisig co-signers who need it to derive the shared addresses.
+   */
+  toExtendedPublicKey(network: "mainnet" | "testnet" = "mainnet"): string {
+    return this.serialize(EXTENDED_KEY_VERSIONS[network].public, this.publicKey.toBytes());
+  }
+
+  /**
+   * Serialise as an extended PRIVATE key — an xprv.
+   *
+   * ⚠️ This is a full backup of every key in the subtree. Anyone who reads it
+   * controls those funds, permanently. Named verbosely so it reads as alarming
+   * at a call site and is trivial to grep for in review.
+   */
+  toExtendedPrivateKeyUnsafe(network: "mainnet" | "testnet" = "mainnet"): string {
+    const secret = this.privateKey.toBytes();
+    try {
+      // The leading 0x00 pads the 32-byte scalar to the 33 bytes a public key
+      // occupies, so both forms are the same length.
+      const keyData = concatBytes(new Uint8Array([0x00]), secret);
+      return this.serialize(EXTENDED_KEY_VERSIONS[network].private, keyData);
+    } finally {
+      wipe(secret);
+    }
+  }
+
+  private serialize(version: number, keyData: Uint8Array): string {
+    if (keyData.length !== 33) {
+      throw new DerivationError("serialised key data must be 33 bytes");
+    }
+    const out = new Uint8Array(78);
+    const view = new DataView(out.buffer);
+    view.setUint32(0, version, false);
+    out[4] = this.depth;
+    out.set(this.parentFingerprint, 5);
+    view.setUint32(9, this.index, false);
+    out.set(this.chainCode, 13);
+    out.set(keyData, 45);
+    return base58CheckEncode(out);
+  }
+
+  /**
+   * Parse a serialised extended key.
+   *
+   * Accepts xpub/tpub and xprv/tprv. Every field is validated: a malformed
+   * extended key that parsed leniently could produce addresses nobody else
+   * derives, which is indistinguishable from lost funds.
+   */
+  static fromExtendedKey(text: string): ExtendedKey {
+    const data = base58CheckDecode(text.trim());
+    if (data.length !== 78) {
+      throw new DerivationError(`extended key must be 78 bytes, decoded ${data.length}`);
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    const version = view.getUint32(0, false);
+    const depth = data[4]!;
+    const parentFingerprint = data.slice(5, 9);
+    const index = view.getUint32(9, false);
+    const chainCode = data.slice(13, 45);
+    const keyData = data.slice(45, 78);
+
+    const versions = Object.values(EXTENDED_KEY_VERSIONS);
+    const isPublic = versions.some((v) => v.public === version);
+    const isPrivate = versions.some((v) => v.private === version);
+    if (!isPublic && !isPrivate) {
+      throw new DerivationError("unrecognised extended key version bytes");
+    }
+
+    // A depth-0 key is a master key and cannot have a parent or an index.
+    // Accepting an inconsistent one would let a crafted key masquerade as a
+    // master, changing which addresses a co-signer derives.
+    if (depth === 0) {
+      if (index !== 0) throw new DerivationError("a depth-0 key must have index 0");
+      if (parentFingerprint.some((byte) => byte !== 0)) {
+        throw new DerivationError("a depth-0 key must have a zero parent fingerprint");
+      }
+    }
+
+    if (isPrivate) {
+      if (keyData[0] !== 0x00) {
+        throw new DerivationError("a private extended key must be padded with a leading zero");
+      }
+      const privateKey = PrivateKey.fromBytes(keyData.slice(1));
+      return new ExtendedKey(
+        privateKey,
+        PublicKey.fromPrivateKey(privateKey),
+        chainCode,
+        depth,
+        index,
+        parentFingerprint,
+      );
+    }
+
+    return new ExtendedKey(
+      null,
+      PublicKey.fromBytes(keyData),
+      chainCode,
+      depth,
+      index,
+      parentFingerprint,
+    );
+  }
 }
+
+/**
+ * Version bytes for serialised extended keys.
+ *
+ * These determine the human-visible prefix — xpub, tpub, and so on — and are
+ * part of the checksummed payload, so a mainnet key cannot be silently read
+ * as testnet. The prefix is a network marker, not decoration.
+ *
+ * SLIP-132 additionally defines ypub/zpub/Zpub to signal the intended script
+ * type. Veyra emits only the standard xpub/tpub: SLIP-132 is not universally
+ * supported, several wallets reject it, and the script type is already implied
+ * by the derivation path. Emitting a prefix some peers cannot parse would be
+ * the opposite of interoperability.
+ */
+export const EXTENDED_KEY_VERSIONS = Object.freeze({
+  mainnet: { public: 0x0488b21e, private: 0x0488ade4 }, // xpub / xprv
+  testnet: { public: 0x043587cf, private: 0x04358394 }, // tpub / tprv
+});
 
 /** Convenience: master node straight from a seed. */
 export function masterKeyFromSeed(seed: Uint8Array): ExtendedKey {
