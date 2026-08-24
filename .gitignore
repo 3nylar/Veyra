@@ -14,6 +14,8 @@ app/docs/*.html
 # and scrapers watch new public repos for exactly this.
 .env
 .env.*
+.env*
+.env.example*
 !.env.example
 *.mnemonic
 *.seed
@@ -38,3 +40,4 @@ Thumbs.db
 .vscode
 .idea
 *.swp
+gitignore.txt
