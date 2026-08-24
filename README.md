@@ -148,7 +148,7 @@ npm run app          # start the interface — see app/README.md
                      #   API docs: http://127.0.0.1:5173/docs/
 ```
 
-Current suite: **904 tests across 31 files** — 886 that need no node, plus 18
+Current suite: **919 tests across 32 files** — 901 that need no node, plus 18
 regtest integration tests that require a running Bitcoin Core node and are
 **the most important tests in the repository**. See
 [docs/REGTEST.md](docs/REGTEST.md).
@@ -271,7 +271,7 @@ README will not describe a challenge that has not been deployed.
 
 Documentation is written alongside the code it documents, never ahead of it.
 `docs/ATTACKS.md` is worth reading first if you want to judge the project's
-honesty: it records sixteen real defects, including two where a security guard
+honesty: it records eighteen real defects, including two where a security guard
 silently stopped guarding, and one where a test measured the machine rather
 than the code.
 

@@ -793,6 +793,104 @@ the check has been observed to go red.
 
 ---
 
+## VEY-017 — Every standalone wallet shipped blank
+
+**Severity:** High (the product did not function at all) ·
+**Found:** increment 20, by a user opening the deployed page
+
+### Failure
+The wallet loaded a blank page. All three standalone files were affected.
+
+### Root cause
+The pages declare:
+
+```
+script-src 'self'
+```
+
+which permits scripts **fetched from this origin** and forbids **inline** ones.
+The whole point of the standalone build is to inline the bundle — so the page's
+own policy blocked its only script. The HTML rendered, the JavaScript never
+ran, and the result was an empty page with no error a user would see.
+
+### Why nothing caught it
+Every check I had **read the file**:
+
+- `assertSelfContained` — no external references ✓
+- `assertPinnedConnectSrc` — no wildcard ✓
+- `assertSignerIsOffline` — `connect-src 'none'` present ✓
+- manual greps — CSP present, crypto inlined, no stray imports ✓
+
+All correct, and all irrelevant. **A CSP violation is a runtime refusal by the
+browser.** It is not visible in the bytes; the bytes are exactly what was
+intended. I verified the file was correct and never verified that it worked.
+
+### Fix
+A **SHA-256 hash of each inline script**, computed from the final content and
+inserted into `script-src`.
+
+Not `'unsafe-inline'`, which would have fixed the blank page and destroyed the
+protection: it permits *any* inline script, including an injected one. A hash
+permits exactly this script and nothing else, so the policy still blocks
+injection — which is the entire point of having it on a page holding keys. The
+build refuses to emit a file using `'unsafe-inline'`.
+
+### Regression test
+`tests/unit/standalone-render.test.ts` — **executes** each page in jsdom and
+asserts something rendered. Also asserts each inline script is hash-authorised,
+that `'unsafe-inline'` is absent, and that the onboarding screen appears.
+
+That test exists because it makes the one assertion the other seven could not:
+*did it run?*
+
+### Lesson
+**Verifying an artifact is correct is not verifying it works.** Every static
+check I wrote examined the output's *content*; the failure was in the output's
+*behaviour under a policy the browser enforces*. Those are different questions,
+and I had only been asking the first.
+
+This is the same shape as VEY-008, where 55 API tests missed a CORS failure
+because Node's `fetch` does not enforce CORS. Both times: a browser-enforced
+policy, verified in an environment that does not enforce it.
+
+The rule that would have caught both: **if a control is enforced by a runtime,
+it must be tested in that runtime.** Reading the configuration proves you wrote
+it, not that it permits what you need.
+
+---
+
+## VEY-018 — The documentation site's root 404'd
+
+**Severity:** Low (availability) · **Found:** increment 20, same report
+
+### Failure
+The docs domain returned 404 at `/`.
+
+### Root cause
+`build-site.ts` emitted only a `docs/` directory. Reaching the introduction
+depended on a `redirects` rule in `vercel.json` — which stops applying the
+moment a dashboard setting overrides the file, leaving nothing at the root at
+all.
+
+Depending on host-specific configuration for "what is at `/`" is fragile: the
+config lives outside the build, so the build can succeed while producing a site
+that does not work.
+
+### Fix
+Emit a real `index.html` that redirects, plus a styled `404.html`. Both are
+plain files, so they work on Vercel, Netlify, GitHub Pages, S3, nginx, and from
+a local filesystem — depending on nothing but their own existence.
+
+The build now **fails** if `index.html` or `docs/introduction.html` is missing,
+rather than deploying a site whose root 404s.
+
+### Lesson
+**Build output should be complete on its own.** If a deployment needs
+host-specific rules to be navigable, the build has produced a fragment and the
+rest lives somewhere the build cannot verify.
+
+---
+
 ## Findings that were NOT defects
 
 Recorded because their absence is itself informative.

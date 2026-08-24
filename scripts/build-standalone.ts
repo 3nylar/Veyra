@@ -92,6 +92,55 @@ for (const page of PAGES) {
 
 if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 
+/**
+ * Rewrite the CSP so the INLINED script is allowed to run.
+ *
+ * ─── The bug this exists to fix ────────────────────────────────────────────
+ * The pages declare `script-src 'self'`, which permits scripts fetched from
+ * this origin and **forbids inline ones**. Inlining the bundle therefore
+ * produced a file whose own policy blocked its only script: the HTML rendered,
+ * the JavaScript never ran, and the page was blank.
+ *
+ * Nothing caught it because the files were verified by reading them. A CSP
+ * violation is a *runtime* refusal by the browser; no amount of grepping the
+ * output reveals it.
+ *
+ * ─── Why a hash and not 'unsafe-inline' ────────────────────────────────────
+ * `'unsafe-inline'` would fix the blank page and destroy the protection: it
+ * permits ANY inline script, including one an attacker injects. A SHA-256
+ * hash permits exactly this script and nothing else — so the policy still
+ * blocks injected code, which is the entire point of having it on a page that
+ * holds keys.
+ *
+ * Change one byte of the bundle and the hash no longer matches, so this is
+ * computed from the final content rather than maintained by hand.
+ */
+function allowInlineScripts(html: string): string {
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)]
+    .map((match) => match[1]!)
+    .filter((code) => code.trim().length > 0);
+
+  if (scripts.length === 0) throw new Error("no inline script found to authorise");
+
+  const hashes = scripts.map(
+    (code) => `'sha256-${createHash("sha256").update(code, "utf8").digest("base64")}'`,
+  );
+
+  return html.replace(
+    /(<meta[^>]+http-equiv="Content-Security-Policy"[^>]+content=")([^"]+)(")/i,
+    (_full, before: string, policy: string, after: string) => {
+      if (!/script-src/.test(policy)) {
+        throw new Error("CSP has no script-src directive to extend");
+      }
+      const updated = policy.replace(
+        /script-src([^;]*)/i,
+        (_directive, sources: string) => `script-src${sources.trimEnd()} ${hashes.join(" ")}`,
+      );
+      return `${before}${updated}${after}`;
+    },
+  );
+}
+
 /** Inline every local asset a page references. */
 function inline(html: string, distDir: string): string {
   let out = html;
@@ -153,6 +202,42 @@ function assertSelfContained(html: string, name: string): void {
 }
 
 /**
+ * Every inline script must be covered by a hash in the CSP.
+ *
+ * Asserted rather than trusted, because the failure mode is a page that looks
+ * perfectly correct in a text editor and is blank in a browser — the exact
+ * failure that shipped once already.
+ */
+function assertInlineScriptsAuthorised(html: string, name: string): void {
+  const meta = /<meta[^>]+http-equiv="Content-Security-Policy"[^>]+content="([^"]+)"/i.exec(html);
+  if (!meta) throw new Error(`${name} has no CSP meta tag`);
+
+  const scriptSrc = /(?:^|;)\s*script-src\s+([^;]+)/i.exec(meta[1]!);
+  if (!scriptSrc) throw new Error(`${name} has no script-src directive`);
+
+  if (/'unsafe-inline'/.test(scriptSrc[1]!)) {
+    throw new Error(
+      `${name} uses 'unsafe-inline', which permits ANY injected script. ` +
+        `Use per-script hashes instead. Refusing to emit it.`,
+    );
+  }
+
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)]
+    .map((match) => match[1]!)
+    .filter((code) => code.trim().length > 0);
+
+  for (const code of scripts) {
+    const hash = `'sha256-${createHash("sha256").update(code, "utf8").digest("base64")}'`;
+    if (!scriptSrc[1]!.includes(hash)) {
+      throw new Error(
+        `${name} contains an inline script the CSP does not authorise. ` +
+          `The browser would refuse to run it and the page would load blank.`,
+      );
+    }
+  }
+}
+
+/**
  * The full wallet holds keys AND reaches the network, so its only defence
  * against exfiltration is a PINNED connect-src. A wildcard would silently
  * remove that, so the build refuses to emit one.
@@ -200,8 +285,9 @@ for (const page of PAGES) {
   const sourcePath = join(distDir, page.source);
   if (!existsSync(sourcePath)) throw new Error(`missing build output: ${page.source}`);
 
-  const html = inline(readFileSync(sourcePath, "utf8"), distDir);
+  const html = allowInlineScripts(inline(readFileSync(sourcePath, "utf8"), distDir));
   assertSelfContained(html, page.output);
+  assertInlineScriptsAuthorised(html, page.output);
   if (page.output === "veyra-sign.html") assertSignerIsOffline(html);
   if (page.output === "veyra.html") assertPinnedConnectSrc(html);
 
