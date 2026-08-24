@@ -39,18 +39,40 @@ export default defineConfig({
     // the dev server on a LAN should never be something you get by accident.
     host: "127.0.0.1",
   },
-  build: {
-    outDir: "dist",
-    emptyOutDir: true,
-    // The wallet plus every documentation page.
-    rollupOptions: {
-      input: {
-        index: resolve(__dirname, "index.html"),
-        // The offline signer. Bundled as its own entry so it can be copied to
-        // an air-gapped machine as a self-contained page.
-        signer: resolve(__dirname, "signer.html"),
-        ...docsEntries(),
+  /**
+   * A standalone build targets ONE page and inlines everything into it.
+   *
+   * Code splitting is correct for a served site and fatal for a single file:
+   * the inlined script would import a chunk that does not exist beside it.
+   * `inlineDynamicImports` forces a single bundle, and is only legal with a
+   * single input — hence the separate build per page.
+   */
+  /**
+   * A standalone build targets ONE page and inlines everything into it.
+   *
+   * Code splitting is correct for a served site and fatal for a single file:
+   * the inlined script would `import` a chunk that does not exist beside it,
+   * and the page loads blank. `inlineDynamicImports` forces a single bundle,
+   * and is only legal with one input — hence one build per page.
+   */
+  build: process.env.VEYRA_STANDALONE_ENTRY
+    ? {
+        emptyOutDir: true,
+        rollupOptions: {
+          input: resolve(__dirname, process.env.VEYRA_STANDALONE_ENTRY),
+          output: { inlineDynamicImports: true },
+        },
+      }
+    : {
+        outDir: "dist",
+        emptyOutDir: true,
+        rollupOptions: {
+          input: {
+            index: resolve(__dirname, "index.html"),
+            signer: resolve(__dirname, "signer.html"),
+            watch: resolve(__dirname, "watch.html"),
+            ...docsEntries(),
+          },
+        },
       },
-    },
-  },
 });

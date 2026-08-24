@@ -677,6 +677,66 @@ latter in fact.
 
 ---
 
+## VEY-015 — The "self-contained" wallet file was not self-contained
+
+**Severity:** Medium (availability — the wallet would not load at all) ·
+**Found:** increment 18, by noticing a file size
+
+### Failure
+`veyra-sign.html` built at **15 KB**. A page containing secp256k1, SHA-256,
+BIP-32 and BIP-39 cannot be 15 KB, and the size was the only symptom — the
+build reported success and every assertion passed.
+
+### Root cause
+Vite code-splits shared code across multiple entry points. The signer and the
+watch page both use the crypto, so it went into a common chunk, and the
+"self-contained" file contained:
+
+```js
+import{s as X,a as Q,…}from"./ecdsa-C-EmpbL1.js"
+```
+
+A file that does not exist beside it. Opened from `file://`, the page would
+have loaded **blank**.
+
+My `assertSelfContained` check scanned for `<script src>`, `<link href>`, CSS
+`@import`, and source maps — all HTML-level references. The import was inside
+JavaScript, where no HTML-tag scan reaches.
+
+### Fix
+Two parts:
+
+1. **One Vite build per page**, with `inlineDynamicImports: true` — which
+   forces a single bundle and is only legal with a single input. The crypto is
+   duplicated in each file, and that is the cost of both files standing alone.
+2. **The missing assertion.** `assertSelfContained` now also fails on any
+   `import … from "./…"` or `import("./…")` remaining in the output.
+
+Result: 15 KB → 105 KB, which is the size a wallet's cryptography actually
+takes.
+
+### Regression test
+`tests/unit/standalone-flow.test.ts` exercises the full air-gapped round trip —
+watch builds a PSBT, signer signs it, watch broadcasts it — so a break at any
+seam fails the suite rather than producing a blank page a user discovers.
+
+The build itself now refuses to emit a file with an unresolved import.
+
+### Lesson
+**A guard checks the layer it is written at.** Mine scanned HTML for external
+references and was correct about HTML; the reference that mattered was one
+layer down, in the JavaScript, and was invisible to it.
+
+The generalisable question: *for each thing this guard is meant to prevent,
+what representations can it take?* "Fetches something external" has an HTML
+form and a JavaScript form, and I had checked one.
+
+Worth noting what actually caught it: a file size that did not match what the
+file was supposed to contain. Not an assertion — a number that looked wrong.
+Which is an argument for printing sizes in build output at all.
+
+---
+
 ## Findings that were NOT defects
 
 Recorded because their absence is itself informative.

@@ -55,7 +55,9 @@ a library.
 | Watch-only wallet | ✅ | `core/wallet/watchOnly.ts` | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 | Encrypted keystore | ✅ | `core/wallet/keystore.ts` | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 | Deployable API (Docker/Fly/Render) | ✅ | `Dockerfile`, `deploy/` | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
-| Offline client-side signer | ✅ | `app/signer.html` | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
+| Offline client-side signer | ✅ | `app/signer.html` | [docs/STANDALONE.md](docs/STANDALONE.md) |
+| Client-side watch wallet | ✅ | `app/watch.html` | [docs/STANDALONE.md](docs/STANDALONE.md) |
+| Standalone single-file build | ✅ | `scripts/build-standalone.ts` | [docs/STANDALONE.md](docs/STANDALONE.md) |
 | P2WSH multisig (t-of-n) | ✅ | `core/addresses/multisig.ts` | [docs/MULTISIG.md](docs/MULTISIG.md) |
 | PSBT (BIP-174) | ✅ | `core/psbt/psbt.ts` | [docs/MULTISIG.md](docs/MULTISIG.md#psbt) |
 | BIP-48 multisig accounts | ✅ | `core/addresses/bip48.ts` | [docs/MULTISIG.md](docs/MULTISIG.md#setting-one-up-bip-48) |
@@ -145,7 +147,7 @@ npm run app          # start the interface — see app/README.md
                      #   API docs: http://127.0.0.1:5173/docs/
 ```
 
-Current suite: **885 tests across 29 files** — 867 that need no node, plus 18
+Current suite: **892 tests across 30 files** — 874 that need no node, plus 18
 regtest integration tests that require a running Bitcoin Core node and are
 **the most important tests in the repository**. See
 [docs/REGTEST.md](docs/REGTEST.md).
@@ -268,7 +270,7 @@ README will not describe a challenge that has not been deployed.
 
 Documentation is written alongside the code it documents, never ahead of it.
 `docs/ATTACKS.md` is worth reading first if you want to judge the project's
-honesty: it records fourteen real defects, including two where a security guard
+honesty: it records fifteen real defects, including two where a security guard
 silently stopped guarding, and one where a test measured the machine rather
 than the code.
 

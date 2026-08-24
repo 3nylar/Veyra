@@ -40,4 +40,6 @@ Thumbs.db
 .vscode
 .idea
 *.swp
+
 gitignore.txt
+standalone
