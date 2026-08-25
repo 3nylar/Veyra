@@ -959,6 +959,160 @@ the property holding.
 
 ---
 
+## VEY-020 — The stored `fetch` was called as a method
+
+**Severity:** High (the deployed wallet could not sync at all) ·
+**Found:** increment 21, by a user clicking Sync on the live site
+
+### Failure
+```
+Chain: network error: Failed to execute 'fetch' on 'Window': Illegal invocation
+```
+
+Every Sync click failed, on every deployed copy, on both `veyra.html` and
+`veyra-watch.html`. No balance could ever be loaded. 919 tests were green.
+
+### Root cause
+Both chain sources accept an injectable `fetchImpl` and default it to the global
+`fetch`. The default was stored bare on the instance:
+
+```ts
+this.fetchImpl = options.fetchImpl ?? globalThis.fetch;   // ← here
+...
+const response = await this.fetchImpl(url, init);         // ← and here
+```
+
+`globalThis.fetch` is a *method of the global object*. `this.fetchImpl(...)` is
+a method call, so `this` inside native `fetch` was the `EsploraChainSource`
+rather than the `Window`. WebIDL brand-checks the receiver and rejects a foreign
+one. `request()` then wrapped that `TypeError` into a `ChainError`, producing
+the message above.
+
+Neither line is wrong alone. The defect is the pair: storing a method
+detached from its receiver, then re-attaching it to the wrong one.
+
+### Why 919 tests missed it
+Two independent reasons, and **both** had to be defeated for any test to catch
+this:
+
+**1. The broken branch was never executed.** Every Esplora and RPC test injects
+a `fetchImpl`. The `?? globalThis.fetch` default — the only defective path —
+had no test at all. The one place a real default was reachable,
+`tests/integration/regtest.test.ts`, runs under Node.
+
+**2. Node cannot observe the bug.** `vitest.config.ts` sets
+`environment: "node"`, and undici's `fetch` performs no receiver brand check.
+Even executing the default branch under Node passes with the defect present.
+
+jsdom would not have helped either: jsdom 25 ships no `fetch` at all.
+
+### Fix
+Two halves, because each closes a different hole:
+
+- **Bind the default** in the constructor —
+  `globalThis.fetch.bind(globalThis)`, behind a `typeof` guard so a runtime with
+  no `fetch` still yields the explanatory `ChainError` rather than a raw
+  `TypeError` from `.bind`. An injected `fetchImpl` is a public option and is
+  left exactly as the caller supplied it.
+- **Call without a receiver** — `const doFetch = this.fetchImpl; await
+  doFetch(...)`. WebIDL substitutes the relevant global when `this` is
+  `undefined` and rejects only a foreign object, so this also protects a caller
+  who injects a raw `window.fetch`.
+
+Applied to `core/chain/esplora.ts` and `core/chain/bitcoinRpc.ts`. The RPC
+source was latent rather than live — it is only constructed under Node today —
+but it is the same defect and would have failed identically in a browser.
+
+### Regression tests
+`tests/unit/fetch-binding.test.ts`. The suite could not catch this by using the
+runtime's `fetch`, so it **supplies the missing brand check itself**: a non-arrow
+stand-in that throws `Illegal invocation` for any foreign receiver. Against the
+unfixed code, 5 of its 10 assertions fail with the exact production string.
+
+It covers the default path, the injected path, a receiver-recording spy, the
+no-`fetch` runtime, and both chain sources — plus a source-tree guard asserting
+`this.fetchImpl(` appears nowhere in `core/`, to catch the third copy somebody
+adds later. Per VEY-016, that guard ships *alongside* the behavioural tests and
+never instead of them, and asserts it scanned a plausible number of files so an
+empty pass cannot be vacuous.
+
+### Lesson
+**A suite that runs in one runtime cannot verify behaviour in another. Supply
+the missing check rather than assuming the runtime provides one.** The browser
+enforced a rule Node does not, and no amount of Node testing was ever going to
+find it — but a fifteen-line fake of that rule found it instantly.
+
+The narrower lesson is worth stating too: **a defaulted dependency needs a test
+of the default.** Dependency injection made every one of these tests easy to
+write and, by making injection the habit, ensured the shipped configuration was
+the only one never exercised.
+
+---
+
+## VEY-021 — Two tests that failed at random
+
+**Severity:** Low (no wallet defect) but corrosive ·
+**Found:** increment 21, while running the suite repeatedly during the UI rework
+
+### Failure
+Two tests in `tests/unit/browser-wallet.test.ts` failed intermittently on
+unchanged code. One of them announced a seed leak that had not happened.
+
+### Root cause
+Both generated a fresh random mnemonic and then asserted a property that is
+only *probably* true.
+
+**1. `a restored phrase with a typo is REJECTED`**
+
+```ts
+const good = generateMnemonic(12).split(" ");
+good[0] = "zoo";
+expect(validateMnemonic(good.join(" "))).toBe(false);
+```
+
+A 12-word phrase carries 128 bits of entropy and a **4-bit** checksum.
+Substituting a random word changes the entropy, and the recomputed checksum
+matches by chance **one time in sixteen**. The test failed about 6% of runs.
+
+**2. `the stored keystore contains no trace of the phrase`**
+
+```ts
+for (const word of mnemonic.split(" ")) expect(stored).not.toContain(word);
+```
+
+`stored` is JSON containing base64. Base64's alphabet includes every lowercase
+letter, and BIP-39 has three-letter words — `ice`, `add`, `art`, `age`, `arm`,
+`ask`. Across a few hundred random base64 characters one of them appears often
+enough to fail regularly. The failure message claimed the mnemonic was stored in
+the clear.
+
+### Fix
+- **The typo test uses a fixed vector.** The standard all-`abandon` phrase with a
+  known-bad substitution. Deterministic, and it tests the same property.
+- **A second test states the real bound honestly.** The 12-word checksum catches
+  about 15 of every 16 single-word typos — *not* all of them. That is now
+  written down rather than left as folklore, and it is the strongest concrete
+  argument for a 24-word phrase, whose 8-bit checksum does roughly 16× better.
+- **The leak test reads the decoded bytes**, not the base64 text. In the
+  underlying bytes a three-character coincidence has probability 2⁻²⁴ per
+  position, so the check is exact for the property it claims. The encoded form
+  is still searched for words of six characters or more, which keeps the test
+  able to catch a plaintext field added to the JSON later.
+
+### Lesson
+**A test that fails one run in sixteen does not teach people to read it — it
+teaches them to re-run the suite.** After that, a real failure in the same file
+is indistinguishable from the usual noise, and the most alarming possible
+message ("the seed is stored in the clear") is the one people learn to ignore.
+
+The narrower rule: **when a test generates random input, the assertion has to
+hold for *all* of that input, not merely most of it.** Both of these asserted a
+property with a known failure rate against a fresh sample each run. Where the
+underlying property really is probabilistic, say so and test the bound — which
+is what the replacement does.
+
+---
+
 ## Findings that were NOT defects
 
 Recorded because their absence is itself informative.

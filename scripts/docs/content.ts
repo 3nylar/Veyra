@@ -183,7 +183,8 @@ satisfies real consensus rules, not just a reading of them. Reproduce with
 </p>
 
 <h2 id="start">Start here</h2>
-<p>Get a token, make a call, and send a regtest transaction: <a href="quickstart.html"><strong>Quickstart →</strong></a></p>`,
+<p>Get a token, make a call, and send a regtest transaction: <a href="quickstart.html"><strong>Quickstart →</strong></a></p>
+<p>Or read what happens if any of this is wrong: <a href="challenge.html"><strong>The security challenge →</strong></a></p>`,
   },
 
   {
@@ -965,6 +966,106 @@ ${endpoint({
   },
 
   {
+    slug: "challenge",
+    group: "Reference",
+    title: "The security challenge",
+    lede: "A funded mainnet wallet, its encrypted keystore, and an open invitation to empty it.",
+    body: `
+${note("warning", `<strong>Not yet funded.</strong> The terms below are final, but
+the address and keystore have not been published. The challenge opens the moment
+they appear here and in the repository README.`)}
+
+<p>
+  Veyra exists to be attacked. Every other page here describes how it works;
+  this one describes what happens if it is wrong.
+</p>
+
+<h2 id="the-bet">The bet</h2>
+<p>
+  A mainnet wallet holding about <strong>$10</strong> in bitcoin, with two
+  things published about it:
+</p>
+<ul>
+  <li><strong>The address</strong>, so anyone can watch the balance and see for
+    themselves whether the coins are still there.</li>
+  <li><strong>The encrypted keystore</strong> — the real
+    <code>veyra.keystore.v1</code> ciphertext for the seed that controls it.</li>
+</ul>
+<p>
+  <strong>If you can spend the coins, they are yours.</strong> There is nothing
+  to report and nobody to ask. If nobody takes them, I match whatever is in the
+  wallet.
+</p>
+
+<h2 id="what-is-attackable">What is actually attackable</h2>
+<p>
+  A published address on its own is not a challenge. The seed would live in one
+  browser, and the only route in would be attacking the author or the hosting —
+  neither of which says anything about the cryptography. Publishing the
+  ciphertext puts this project's actual claims on the table:
+</p>
+<table>
+  <tr><th>Claim</th><th>Where it lives</th></tr>
+  <tr><td>Seeds are unpredictable</td><td><code>core/crypto/entropy.ts</code></td></tr>
+  <tr><td>BIP-39 and BIP-32 derivation has no exploitable structure</td><td><code>core/mnemonic/</code>, <code>core/derivation/bip32.ts</code></td></tr>
+  <tr><td>scrypt and AES-256-GCM are used correctly</td><td><code>core/wallet/keystore.ts</code></td></tr>
+</table>
+<p>
+  The keystore is scrypt with <code>N=2¹⁷, r=8, p=1</code> deriving a 32-byte
+  key, then AES-256-GCM with the header fields as additional authenticated
+  data. A flaw in any of it — nonce handling, AAD, key reuse, a weak entropy
+  source — is worth far more than $10, and this is the cheapest honest way to
+  discover whether one exists.
+</p>
+
+<h2 id="caveats">The honest caveats</h2>
+${note("teal", `<strong>If the implementation is correct, this is unwinnable.</strong>
+That is the point, and it is worth stating plainly rather than dressing the
+challenge up as a fair fight. The passphrase carries 128 bits of entropy and is
+kept offline, so guessing it is not a strategy — brute force is excluded by
+construction, which is exactly what leaves an implementation flaw as the only
+way through.`)}
+<p>
+  <strong>You cannot verify the pairing without breaking it.</strong> Nothing
+  proves the published keystore decrypts to the seed controlling the published
+  address until somebody actually does it. That is an unavoidable property of
+  the format rather than a hedge, but it means the challenge is an invitation
+  and not an escrow — and it is said here rather than left for you to notice.
+</p>
+<p>
+  <strong>The wallet is dedicated to this.</strong> It has never held anything
+  else and never will. The keystore is generated for the challenge and used
+  nowhere.
+</p>
+
+<h2 id="scope">Out of scope</h2>
+<p>
+  Attacking the host, the domain, any accounts, or anyone's machine. The point
+  is the cryptography, and none of those touch it.
+</p>
+<p>
+  Serving a modified page <em>is</em> a real attack on a browser wallet — it is
+  the most likely way one actually loses money, which is why every release
+  publishes a SHA-256 and why <code>standalone/VERIFY.md</code> exists. But the
+  deployment is not the target here.
+</p>
+
+<h2 id="reporting">If you find a flaw instead</h2>
+<p>
+  A vulnerability report is more useful to this project than the $10 is to
+  either of us, and it covers the whole codebase rather than just the challenge
+  wallet. See <code>SECURITY.md</code> in the repository. A failing test is the
+  single most useful artefact: it becomes the permanent regression test, and it
+  removes any ambiguity about whether the issue is real.
+</p>
+<p>
+  Defects found so far — including two where a security guard silently stopped
+  guarding, and one where the deployed wallet could not sync at all — are
+  written up with root cause and lesson in <code>docs/ATTACKS.md</code>.
+</p>`,
+  },
+
+  {
     slug: "changelog",
     group: "Reference",
     title: "Changelog",
@@ -998,8 +1099,10 @@ txid for it.`)}
 </ul>
 
 <h3>Fixed</h3>
-<p>Nine defects are recorded in <code>docs/ATTACKS.md</code> with root cause, fix, and lesson. Three were found by running on hardware and a runtime unlike the author's:</p>
+<p>Defects are recorded in <code>docs/ATTACKS.md</code> with root cause, fix, and lesson. Several were found only by running on hardware and a runtime unlike the author's:</p>
 <ul>
+  <li><strong>VEY-020</strong> — the deployed wallet could not sync at all. A stored <code>globalThis.fetch</code> was invoked as a method, so the browser rejected the receiver with <em>Illegal invocation</em>. Every one of 919 tests missed it: they all injected a fake, and Node's <code>fetch</code> has no receiver check to fail.</li>
+  <li><strong>VEY-021</strong> — two tests failed at random, one of them announcing a seed leak that had not happened. A 12-word checksum is 4 bits, so a random word substitution still validates 1 time in 16.</li>
   <li><strong>VEY-001</strong> — a security guard silently stopped guarding on Windows, passing vacuously.</li>
   <li><strong>VEY-008</strong> — the API was unreachable from any browser; 55 tests missed it because Node's <code>fetch</code> does not enforce CORS.</li>
   <li><strong>VEY-009</strong> — a test asserted wall-clock time, so it measured the machine rather than the code.</li>

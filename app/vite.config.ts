@@ -19,20 +19,20 @@ function docsEntries(): Record<string, string> {
 }
 
 /**
- * No React plugin.
+ * No framework.
  *
- * `@vitejs/plugin-react` exists for Fast Refresh, and it pins a Vite major
- * that conflicts with the one vitest brings in. Vite compiles JSX through
- * esbuild natively, so the plugin buys a development convenience at the cost
- * of a dependency conflict and one more package in a tree that holds wallet
- * code. §46 asks for a reason for every dependency; "hot reload" did not
- * survive the question.
+ * Every page here is plain TypeScript that renders by assigning `innerHTML`.
+ * That is a deliberate choice for a wallet: the shipped artifact is a single
+ * self-contained file under a strict CSP, and a framework would add bytes,
+ * a supply chain, and a runtime — none of which the four screens need.
+ *
+ * A React UI lived here until increment 21. It talked to the localhost API,
+ * was never deployed, and had drifted into a second design system whose
+ * stylesheet had no effect on the shipped page. It was removed rather than
+ * maintained; the API it spoke to is still documented and still runs.
  */
 export default defineConfig({
   root: __dirname,
-  esbuild: {
-    jsx: "automatic",
-  },
   server: {
     port: 5173,
     // Localhost only. This UI talks to an API holding private keys; exposing
@@ -68,7 +68,6 @@ export default defineConfig({
         emptyOutDir: true,
         rollupOptions: {
           input: {
-            index: resolve(__dirname, "index.html"),
             // The main product: a single-page wallet anyone can open.
             wallet: resolve(__dirname, "wallet.html"),
             signer: resolve(__dirname, "signer.html"),

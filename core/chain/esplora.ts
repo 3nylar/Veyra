@@ -98,7 +98,28 @@ export class EsploraChainSource implements ChainSource {
     this.name = `Esplora(${new URL(options.baseUrl).host})`;
     this.timeoutMs = options.timeoutMs ?? 15_000;
     this.maxRetries = options.maxRetries ?? 2;
-    this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
+    // `.bind(globalThis)` here is load-bearing, not defensive style.
+    //
+    // `globalThis.fetch` is a METHOD of the global object. Storing the bare
+    // reference and later calling `this.fetchImpl(...)` invokes it with `this`
+    // set to this EsploraChainSource, and the WebIDL brand check rejects the
+    // foreign receiver:
+    //
+    //     TypeError: Failed to execute 'fetch' on 'Window': Illegal invocation
+    //
+    // `request()` wrapped that into `Chain: network error: ...`, which is what
+    // every user of the browser wallet saw when they pressed Sync — on both
+    // wallet.html and watch.html. Node's undici performs no receiver check,
+    // which is why 55 green tests never noticed. See docs/ATTACKS.md VEY-020.
+    //
+    // Only the DEFAULT is bound. An injected `fetchImpl` is a public option and
+    // is left exactly as the caller supplied it; `request()` instead reads it
+    // into a local so the call has no receiver at all, which is what keeps an
+    // injected `window.fetch` working too.
+    const globalFetch =
+      typeof globalThis.fetch === "function" ? globalThis.fetch.bind(globalThis) : undefined;
+
+    this.fetchImpl = options.fetchImpl ?? (globalFetch as typeof fetch);
 
     if (typeof this.fetchImpl !== "function") {
       throw new ChainError("no fetch implementation available in this runtime");
@@ -135,7 +156,13 @@ export class EsploraChainSource implements ChainSource {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
       try {
-        const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        // Read into a local so the call has NO receiver. Together with the
+        // bound default in the constructor this holds even if a caller injects
+        // a raw global method: WebIDL substitutes the relevant global when
+        // `this` is undefined, and rejects only a foreign object. Calling
+        // `this.fetchImpl(...)` directly is the VEY-020 defect — do not.
+        const doFetch = this.fetchImpl;
+        const response = await doFetch(`${this.baseUrl}${path}`, {
           ...init,
           signal: controller.signal,
           headers: { Accept: "text/plain, application/json", ...(init?.headers ?? {}) },

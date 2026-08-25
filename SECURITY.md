@@ -8,13 +8,28 @@ can send.
 
 ## Current status
 
-**No security challenge is live.** No funds are deployed, and no address is
-published. When a challenge exists it will be announced in the README with its
-scope, rules, and start date. Until then there is nothing to attack for
-reward — only a codebase to improve.
+**The security challenge is not yet funded.** Its terms are final and published
+in [the README](README.md#the-security-challenge); the address and encrypted
+keystore appear there at funding, and the challenge opens the moment they do.
+Until then there is nothing to attack for reward — only a codebase to improve.
 
-**Nothing here has handled real funds** on any network, and no transaction it
-produced has yet been accepted by Bitcoin Core.
+**Nothing here has handled real funds** on any network.
+
+A transaction Veyra built and signed **has** been accepted by Bitcoin Core, on
+regtest, on 2026-08-20, computing the same txid — so the serialisation is
+byte-exact and the signing path satisfies real consensus rules. Reproduce it
+with `npm run test:regtest`. (An earlier version of this file said no such
+transaction existed. That was stale, and it had contradicted the README for
+several increments.)
+
+### Two things are deliberately separate
+
+**The challenge** is a withdrawal. If you can spend the coins from the published
+keystore, they are yours — no report, no permission, nothing to disclose.
+
+**A vulnerability report** is everything below. It covers the whole codebase,
+including flaws that have nothing to do with the challenge wallet, and it is
+the more useful of the two to the project.
 
 ---
 

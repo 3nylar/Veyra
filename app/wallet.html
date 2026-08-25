@@ -53,7 +53,15 @@
         font:15px/1.55 ui-sans-serif,system-ui,-apple-system,sans-serif;
         -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
       :focus-visible{outline:2px solid var(--teal);outline-offset:2px;border-radius:4px}
-      @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+      /* Reduced motion zeroes DURATION but not DELAY, and the flip card's face
+         swap is delay-driven. Without the second line the card spends a quarter
+         of a second with both faces hidden — a blank card. The flip still
+         WORKS here; it simply happens instantly, which is what the preference
+         actually asks for. */
+      @media (prefers-reduced-motion:reduce){
+        *{animation-duration:.01ms!important;transition-duration:.01ms!important}
+        .flip-face{transition-delay:0s!important}
+      }
 
       .shell{max-width:560px;margin:0 auto;padding:var(--s5) var(--s4) 96px;min-height:100%}
       .topbar{display:flex;align-items:baseline;justify-content:space-between;gap:var(--s4);padding-bottom:var(--s5)}
@@ -112,8 +120,9 @@
       .addr .hrp{color:var(--teal)}
       .addr .sum{color:var(--muted);border-bottom:1px solid var(--teal-dim);padding-bottom:1px}
 
-      .qr{display:flex;justify-content:center;padding:var(--s5);background:#fff;border-radius:12px;margin-bottom:var(--s4)}
-      .qr canvas{display:block;image-rendering:pixelated}
+      .qr{display:flex;align-items:center;justify-content:center;min-height:220px;padding:var(--s4);
+        background:#fff;border-radius:12px;margin-bottom:var(--s4);color:#0a0c0e;font-size:13px;text-align:center}
+      .qr img{display:block;width:220px;height:220px;image-rendering:pixelated}
 
       .words{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s2);margin:var(--s4) 0}
       @media(max-width:480px){.words{grid-template-columns:repeat(2,1fr)}}
@@ -127,11 +136,6 @@
         padding:var(--s3) var(--s1);border-radius:0;font-size:13px}
       .nav button[aria-current="true"]{color:var(--text);border-top-color:var(--teal)}
 
-      .item{display:flex;justify-content:space-between;align-items:center;gap:var(--s3);padding:var(--s3) 0;border-bottom:1px solid var(--line)}
-      .item:last-child{border-bottom:none}
-      .item .id{font-family:var(--mono);font-size:13px}
-      .item .meta{font-size:12px;color:var(--dim);margin-top:2px}
-      .item .amt{font-family:var(--mono);font-size:14px;white-space:nowrap}
       .empty{text-align:center;padding:var(--s6) var(--s4);color:var(--dim);font-size:13px}
       .status{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:var(--s3)}
       .hidden{display:none!important}
@@ -140,6 +144,88 @@
         letter-spacing:.06em;text-transform:uppercase;color:var(--dim);flex-wrap:wrap}
       .steps .on{color:var(--teal)}
       .steps .done{color:var(--muted)}
+
+      /* ── Semantic tones ──────────────────────────────────────────────────
+         Colour carries meaning here and is never decorative, so it is applied
+         through one attribute rather than a scattering of inline styles. */
+      [data-tone="muted"]{color:var(--muted)}
+      [data-tone="warn"]{color:var(--warning)}
+      [data-tone="danger"]{color:var(--danger)}
+      [data-tone="ok"]{color:var(--teal)}
+      [data-tone="received"]{color:var(--teal)}
+      [data-tone="sent"]{color:var(--text)}
+      [data-tone="internal"]{color:var(--muted)}
+
+      a{color:var(--teal);text-decoration:none}
+      a:hover{text-decoration:underline}
+      button.danger{border-color:var(--danger);color:var(--danger)}
+      button.danger:hover:not(:disabled){background:rgba(229,72,77,.09)}
+      button.wide{width:100%;margin-top:var(--s3)}
+
+      label.check{display:flex;align-items:center;gap:var(--s3);margin-bottom:var(--s3);cursor:pointer}
+      label.check input{width:16px;height:16px;flex:0 0 auto;padding:0;accent-color:var(--teal)}
+      label.check span{font-size:13.5px;color:var(--text)}
+
+      /* ── The flip card ───────────────────────────────────────────────────
+         `data-shown` is rendered from prefs.balanceHidden, never toggled as
+         DOM state — a render replaces innerHTML and would undo it. See the
+         note above viewHome() in wallet-app.ts.
+
+         ⚠️ Nothing on the ancestor chain may set overflow:hidden, filter, or
+         opacity below 1. Each of those flattens preserve-3d and turns the flip
+         into a 2D squash. `.card` and `.shell` deliberately set none of them. */
+      .flip{display:block;width:100%;text-align:left;font:inherit;color:inherit;
+        background:var(--surface);border:1px solid var(--line);border-radius:12px;
+        padding:var(--s5);margin-bottom:var(--s3);cursor:pointer;
+        perspective:900px;-webkit-tap-highlight-color:transparent}
+      .flip:hover{background:var(--surface);border-color:#2b3540}
+
+      /* Both faces occupy the SAME grid cell, so the card is as tall as the
+         taller face in either state. No fixed height to clip a long balance,
+         and no jump when it turns. */
+      .flip-inner{display:grid;transform-style:preserve-3d;
+        transition:transform .45s cubic-bezier(.2,.7,.2,1)}
+      .flip[data-shown="true"] .flip-inner{transform:rotateY(180deg)}
+
+      .flip-face{grid-area:1/1;display:flex;flex-direction:column;
+        -webkit-backface-visibility:hidden;backface-visibility:hidden;
+        /* Swap at the midpoint, where the card is edge-on and the change is
+           invisible. `visibility` does not interpolate, so the delay IS the
+           mechanism — which is why reduced motion has to zero it explicitly. */
+        transition:visibility 0s linear .225s}
+      .flip-face[data-face="balance"]{transform:rotateY(180deg)}
+
+      /* visibility:hidden, not rotation alone. A face merely turned away is
+         still announced by a screen reader and still found by ctrl-F — which,
+         for a card whose entire job is concealing a number in public, would
+         make the feature a decoration. */
+      .flip[data-shown="false"] .flip-face[data-face="balance"],
+      .flip[data-shown="true"]  .flip-face[data-face="cover"]{visibility:hidden}
+
+      .flip .label{display:block}
+      .flip .balance,.flip .sats,.flip .fiat{display:block}
+      .flip-hint{margin-top:var(--s4);font-size:11px;letter-spacing:.08em;
+        text-transform:uppercase;color:var(--dim)}
+      .fiat{font-family:var(--mono);font-size:16px;color:var(--muted);margin-top:var(--s1)}
+      .v-fiat{display:block;font-size:12px;color:var(--muted);margin-top:2px}
+
+      /* ── Activity rows ───────────────────────────────────────────────────
+         Direction is carried by a word AND a sign, so the meaning survives
+         greyscale printing and colour blindness. Colour only reinforces it. */
+      .item{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--s4);
+        padding:var(--s3) 0;border-bottom:1px solid var(--line)}
+      .item:last-of-type{border-bottom:none}
+      .item-main{min-width:0}
+      .item-word{font-size:13.5px;font-weight:500}
+      .item-amt{text-align:right;white-space:nowrap;flex-shrink:0}
+      .amt{font-family:var(--mono);font-size:14px}
+      .amt-fiat{font-family:var(--mono);font-size:12px;color:var(--dim);margin-top:2px}
+      .item .id{font-family:var(--mono);font-size:12px}
+      .item .meta{font-size:12px;color:var(--dim);margin-top:2px;
+        overflow-wrap:anywhere}
+      .item time{color:var(--dim)}
+      .status[data-tone="ok"]{color:var(--teal)}
+      .status[data-tone="danger"]{color:var(--danger)}
     </style>
   </head>
   <body>

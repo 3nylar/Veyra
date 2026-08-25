@@ -151,7 +151,15 @@ export class BitcoinRpcChainSource implements ChainSource {
     this.network = options.network;
     this.name = `bitcoind(${new URL(this.url).host})`;
     this.timeoutMs = options.timeoutMs ?? 60_000; // scantxoutset can be slow
-    this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
+    // See the identical note in esplora.ts and docs/ATTACKS.md VEY-020: a bare
+    // `globalThis.fetch` stored on an instance is later invoked as a method,
+    // and a browser rejects the foreign receiver with "Illegal invocation".
+    // Latent here rather than live — this source is only constructed under
+    // Node today — but it is the same defect and is fixed the same way.
+    const globalFetch =
+      typeof globalThis.fetch === "function" ? globalThis.fetch.bind(globalThis) : undefined;
+
+    this.fetchImpl = options.fetchImpl ?? (globalFetch as typeof fetch);
 
     // Basic auth. Credentials never appear in the URL, so they cannot end up
     // in a log line, a referrer header, or shell history via a copied URL.
@@ -182,7 +190,10 @@ export class BitcoinRpcChainSource implements ChainSource {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await this.fetchImpl(target, {
+      // Read into a local so the call has no receiver — see VEY-020 and the
+      // matching comment in esplora.ts. `this.fetchImpl(...)` is the defect.
+      const doFetch = this.fetchImpl;
+      const response = await doFetch(target, {
         method: "POST",
         signal: controller.signal,
         headers: { "Content-Type": "application/json", Authorization: this.authHeader },

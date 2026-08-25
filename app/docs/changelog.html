@@ -41,7 +41,7 @@
       </div>
       <div class="nav-group">
         <h4>Reference</h4>
-        <a href="api-reference">API reference</a><a href="changelog" class="current" aria-current="page">Changelog</a>
+        <a href="api-reference">API reference</a><a href="challenge">The security challenge</a><a href="changelog" class="current" aria-current="page">Changelog</a>
       </div></nav>
 
       <main class="content">
@@ -77,8 +77,10 @@ txid for it.</div>
 </ul>
 
 <h3>Fixed</h3>
-<p>Nine defects are recorded in <code>docs/ATTACKS.md</code> with root cause, fix, and lesson. Three were found by running on hardware and a runtime unlike the author's:</p>
+<p>Defects are recorded in <code>docs/ATTACKS.md</code> with root cause, fix, and lesson. Several were found only by running on hardware and a runtime unlike the author's:</p>
 <ul>
+  <li><strong>VEY-020</strong> — the deployed wallet could not sync at all. A stored <code>globalThis.fetch</code> was invoked as a method, so the browser rejected the receiver with <em>Illegal invocation</em>. Every one of 919 tests missed it: they all injected a fake, and Node's <code>fetch</code> has no receiver check to fail.</li>
+  <li><strong>VEY-021</strong> — two tests failed at random, one of them announcing a seed leak that had not happened. A 12-word checksum is 4 bits, so a random word substitution still validates 1 time in 16.</li>
   <li><strong>VEY-001</strong> — a security guard silently stopped guarding on Windows, passing vacuously.</li>
   <li><strong>VEY-008</strong> — the API was unreachable from any browser; 55 tests missed it because Node's <code>fetch</code> does not enforce CORS.</li>
   <li><strong>VEY-009</strong> — a test asserted wall-clock time, so it measured the machine rather than the code.</li>
@@ -121,7 +123,7 @@ finds real funds.</div>
 </table>
         
     <nav class="pager">
-      <a class="pager-link" href="api-reference"><span>Previous</span><strong>API reference</strong></a>
+      <a class="pager-link" href="challenge"><span>Previous</span><strong>The security challenge</strong></a>
       <span></span>
     </nav>
       </main>

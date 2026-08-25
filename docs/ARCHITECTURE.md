@@ -5,9 +5,20 @@
 ## Dependency direction
 
 ```
-   app/  ──►  api/  ──►  core/
-                          └── depends on nothing in this repository
+   app/  ──┐
+           ├──►  core/
+   api/  ──┘      └── depends on nothing in this repository
 ```
+
+`app/` and `api/` are two independent front ends over the same wallet core, not
+a stack. The browser pages import `core/` directly and talk to a chain source
+themselves; the HTTP API is a separate, localhost-only tool. Neither depends on
+the other.
+
+> Until increment 21 this read `app/ ──► api/ ──► core/`, because the interface
+> was a React client for the API. That client was never deployed and was
+> removed; the diagram had been describing an arrangement that no longer
+> shipped.
 
 `core/` must never import from `api/` or `app/`, and must not use Node-only or
 DOM-only APIs. That is what makes it testable without a server and genuinely
@@ -113,6 +124,10 @@ serialiser cannot send the wrong one.
 
 ## Not yet built
 
-`app/` (the UI), real fee estimation from mempool data, transaction history
-enrichment, and Lightning. The directories do not exist, because an empty
-directory in a tree implies work that has not happened.
+Lightning. Persistent wallet state — the RBF replacement map lives in memory,
+so restarting loses the ability to fee-bump anything broadcast before it.
+Broadcasting has never been exercised against a live chain source, and nothing
+has been driven through a real browser end to end.
+
+No directory exists for any of it, because an empty directory in a tree implies
+work that has not happened.

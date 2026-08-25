@@ -39,9 +39,41 @@ describe("onboarding: create, back up, encrypt, restore", () => {
   it("the stored keystore contains no trace of the phrase", async () => {
     // It goes into localStorage, which any script on the origin can read.
     // That is acceptable only because it is ciphertext.
+    //
+    // ⚠️ The check runs over the DECODED BYTES, not the JSON text, and that
+    // distinction is what makes it a test rather than a coin flip.
+    //
+    // An earlier version searched the base64 for each word. Base64's alphabet
+    // includes every lowercase letter, and BIP-39 has words as short as three
+    // characters — "ice", "add", "art", "age". A few hundred random base64
+    // characters spell one of those often enough that the test failed
+    // spuriously, reporting a catastrophic seed leak that had not happened.
+    // Crying wolf about key material is worse than not checking at all.
+    //
+    // In the underlying bytes the coincidence rate is 2^-24 per position, so
+    // this version is exact for the property it claims to test: the plaintext
+    // is not present in what gets written.
     const mnemonic = generateMnemonic(12);
-    const stored = JSON.stringify(await encryptMnemonic(mnemonic, "a good passphrase"));
+    const keystore = await encryptMnemonic(mnemonic, "a good passphrase");
+    const stored = JSON.stringify(keystore);
+
+    // The whole phrase must not appear in the file in any form.
+    expect(stored).not.toContain(mnemonic);
+
+    const bytes = Buffer.concat(
+      [keystore.salt, keystore.iv, keystore.ciphertext, keystore.authTag].map((field) =>
+        Buffer.from(field, "base64"),
+      ),
+    );
+
     for (const word of mnemonic.split(" ")) {
+      expect(bytes.includes(Buffer.from(word, "utf8"))).toBe(false);
+    }
+
+    // And the encoded form must not contain any word long enough that a chance
+    // match would be implausible — this still catches a plaintext field added
+    // to the JSON later, without the false positives on three-letter words.
+    for (const word of mnemonic.split(" ").filter((w) => w.length >= 6)) {
       expect(stored).not.toContain(word);
     }
   });
@@ -49,9 +81,44 @@ describe("onboarding: create, back up, encrypt, restore", () => {
   it("a restored phrase with a typo is REJECTED before anything is stored", () => {
     // Otherwise the wallet encrypts a wrong phrase, unlocks cleanly, and shows
     // an empty balance — which a user reads as "my coins are gone".
-    const good = generateMnemonic(12).split(" ");
-    good[0] = "zoo";
-    expect(validateMnemonic(good.join(" "))).toBe(false);
+    //
+    // ⚠️ The phrase here is FIXED, and that is not laziness.
+    //
+    // An earlier version generated a fresh mnemonic and overwrote one word.
+    // A 12-word phrase carries 128 bits of entropy and a **4-bit** checksum,
+    // so a random single-word substitution still validates roughly 1 time in
+    // 16 — and this test failed, spuriously, about 6% of the time. A test that
+    // fails one run in sixteen teaches people to re-run the suite instead of
+    // reading it, which costs more than the test was ever worth.
+    //
+    // This is the standard BIP-39 all-zeros vector with its final word
+    // replaced. The rejection is deterministic.
+    const good = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    expect(validateMnemonic(good)).toBe(true);
+    expect(validateMnemonic(good.replace(/about$/, "abandon"))).toBe(false);
+    expect(validateMnemonic(good.replace(/^abandon/, "zoo"))).toBe(false);
+  });
+
+  it("states honestly how much protection the checksum actually gives", () => {
+    // Worth pinning as a fact rather than leaving as folklore: the 12-word
+    // checksum is 4 bits, so it catches about 15 of every 16 single-word
+    // typos — not all of them. The interface must never claim a mistyped
+    // phrase is impossible to accept, only that it is usually caught.
+    //
+    // 24 words carry an 8-bit checksum and do roughly 16x better, which is the
+    // strongest concrete argument for the longer phrase.
+    const words = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".split(" ");
+
+    let accepted = 0;
+    const candidates = ["zoo", "zebra", "young", "youth", "zero", "wrong", "write", "yellow"];
+    for (const replacement of candidates) {
+      const typo = [...words];
+      typo[0] = replacement;
+      if (validateMnemonic(typo.join(" "))) accepted += 1;
+    }
+
+    // Most are caught. The point is that "most" is the honest word.
+    expect(accepted).toBeLessThan(candidates.length);
   });
 
   it("the confirmation step compares against the real words", () => {

@@ -16,9 +16,18 @@ a library.
 > serialisation is byte-exact and the signing path satisfies real consensus
 > rules, not just my reading of them. Run `npm run test:regtest` to reproduce.
 >
-> Still missing: Lightning. The Esplora client
-> has **not** been tested against a live server. Nothing here has handled real
-> funds. There is no challenge deployment.
+> **Live chain data, finally.** On 2026-08-25 the Esplora client read mainnet
+> from `blockstream.info` for the first time: tip height, address activity,
+> UTXOs, 25 parsed transactions, and fee estimates. Until then it had only ever
+> been tested against a controlled fake. The same day, a receiver-binding bug
+> that made **every browser sync fail** was found and fixed — see
+> [ATTACKS.md VEY-020](docs/ATTACKS.md).
+>
+> Still missing: Lightning. `broadcast` has not been exercised against a live
+> server, and nothing has been driven through a real browser end to end.
+> Nothing here has handled real funds, and the challenge wallet is not funded —
+> see [The security challenge](#the-security-challenge) for the terms it will
+> run under.
 
 ---
 
@@ -244,12 +253,77 @@ most useful artefact — under §31 it becomes the permanent regression test.
 
 ## The security challenge
 
-**Not yet live.** A publicly funded challenge wallet (~$10 in BTC) is planned
-once Phase 1 is complete, the security suite passes, and a threat model is
-published. Scope, rules, and disclosure process will be defined then.
+> **Status: mechanism built, not yet funded.** The terms below are final. The
+> address and keystore are published here at funding, and the challenge opens
+> the moment they appear. Until then there is nothing to attack, and this
+> section is describing a commitment rather than a live target.
+>
+> ```
+> Challenge address:  (published at funding)
+> Challenge keystore: (published at funding — challenge/keystore.json)
+> Opened:             —
+> Status:             not yet funded
+> ```
 
-Until a wallet exists, there is nothing to attack and nothing is claimed. This
-README will not describe a challenge that has not been deployed.
+### The bet
+
+A mainnet wallet holding about **$10** in bitcoin. Two published artefacts:
+
+1. **The address**, so anyone can watch the balance and see for themselves
+   whether the coins are still there.
+2. **The encrypted keystore** — the actual `veyra.keystore.v1` ciphertext for
+   the seed that controls it: scrypt (N=2¹⁷, r=8, p=1) and AES-256-GCM with the
+   header as additional authenticated data.
+
+**If you can spend the coins, they are yours.** No disclosure, no permission, no
+report. Take them. Publishing the keystore is what makes that a real offer
+rather than a rhetorical one — you do not need my cooperation, an account, or a
+running service. The file is enough.
+
+**If nobody takes them, I match whatever is in the wallet** and say so here.
+
+### Why the keystore, and not just an address
+
+A published address alone is not attackable. The seed would live in one browser,
+and the only way in would be attacking me or the hosting — neither of which says
+anything about the cryptography. Publishing the ciphertext puts the actual
+claims of this project on the table:
+
+- that `core/crypto/entropy.ts` produces unpredictable seeds
+- that the BIP-39 and BIP-32 derivation has no structure to exploit
+- that scrypt at these parameters and AES-256-GCM were used correctly — right
+  nonce handling, right AAD, no key reuse
+
+A flaw in any of those is worth far more than $10, and this is the cheapest
+honest way to find out whether one exists.
+
+### The honest caveats
+
+**If the implementation is correct, this is unwinnable.** That is the point, and
+it is worth stating plainly rather than dressing the challenge up as a fair
+fight. The passphrase carries **128 bits of entropy** and is stored offline, so
+guessing it is not a strategy — brute force is excluded by construction, which
+is precisely what leaves an implementation flaw as the only way through.
+
+**You cannot verify the pairing without breaking it.** Nothing proves the
+published keystore decrypts to the seed controlling the published address until
+someone actually does it. That is an unavoidable property of the format, not a
+hedge — but it is a reason to treat the challenge as an invitation rather than
+an escrow, and it is stated here rather than left for you to notice.
+
+**The wallet is dedicated to this.** It has never held anything else and never
+will. The keystore is generated for the challenge and used nowhere.
+
+### Out of scope
+
+Attacking the host, the domain, my accounts, or anyone's machine. The point is
+the cryptography, and none of those touch it. Serving a modified page is a real
+attack on a browser wallet, which is why every release publishes a SHA-256 and
+why `standalone/VERIFY.md` exists — but the deployment is not the target here.
+
+For anything that is a vulnerability rather than a withdrawal, see
+[SECURITY.md](SECURITY.md). A failing test is the most useful artefact; under
+§31 it becomes the permanent regression test.
 
 ---
 
