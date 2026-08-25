@@ -247,6 +247,28 @@ The signer checks that the key it derives at the PSBT's stated path **matches
 the public key the PSBT names**. A mismatch means the input belongs to someone
 else, and signing anyway would produce a useless signature.
 
+## Deploying two sites from one repository
+
+`vercel.json` **always overrides dashboard settings**, and a repository can
+only have one. Both Vercel projects read the same file, so configuring the
+second project through the dashboard has no effect — it silently builds
+whatever `vercel.json` says.
+
+That is why a wallet project can deploy successfully and serve the docs.
+
+**The resolution:** `vercel.json` belongs to the **wallet**, because that is
+the deployment that needs the security headers. The docs project is configured
+through its dashboard, and the equivalent settings are kept in
+`deploy/vercel-docs.json` for reference.
+
+| Project | Configured by | Build command | Output |
+| --- | --- | --- | --- |
+| Wallet | `vercel.json` (root) | `npm run standalone && …` | `public` |
+| Docs | Dashboard | `npm run docs:build && npm run site:build` | `app/dist-site` |
+
+If you ever see one project serving the other's content, check whether
+`vercel.json` is quietly winning.
+
 ## What is still missing
 
 - **No mTLS or IP allowlist.** The bearer token is the only authentication.
