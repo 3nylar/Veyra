@@ -23,6 +23,13 @@ mnemonic.txt
 wallet-backup*
 *.keystore
 keystore.json
+
+# ...EXCEPT the security-challenge keystore, which is MEANT to be published.
+# The whole point of the challenge is that anyone can attack this ciphertext,
+# so it is the one keystore in this repository that must be committed. It is a
+# dedicated wallet holding only the bounty, and its passphrase carries 128+ bits
+# of entropy and lives offline. See README.md "The security challenge".
+!challenge/keystore.json
 *.key
 *.pem
 
