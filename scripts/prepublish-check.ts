@@ -120,6 +120,25 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
+// Deployment config: Vercel fails the BUILD on an unknown key, which costs a
+// full deploy cycle to discover. Cheap to catch here.
+if (existsSync(join(root, "vercel.json"))) {
+  const ALLOWED_VERCEL_KEYS = new Set([
+    "$schema", "buildCommand", "outputDirectory", "installCommand",
+    "devCommand", "framework", "cleanUrls", "trailingSlash",
+    "headers", "redirects", "rewrites", "regions", "public", "git",
+  ]);
+  try {
+    const config = JSON.parse(readFileSync(join(root, "vercel.json"), "utf8")) as Record<string, unknown>;
+    const unknown = Object.keys(config).filter((key) => !ALLOWED_VERCEL_KEYS.has(key));
+    if (unknown.length > 0) {
+      failures.push(`vercel.json has keys Vercel will reject: ${unknown.join(", ")}`);
+    }
+  } catch (error) {
+    failures.push(`vercel.json is not valid JSON: ${(error as Error).message}`);
+  }
+}
+
 console.log("✓ No secrets found in tracked files.");
 console.log("✓ .gitignore covers .env and node_modules.\n");
 console.log("Reminders that this script cannot check:");

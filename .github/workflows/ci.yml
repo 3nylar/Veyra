@@ -62,6 +62,9 @@ jobs:
       - name: Full suite
         run: npm test
 
+      - name: Validate deployment config
+        run: npm run check:vercel
+
       - name: Dependency audit
         run: npm audit --audit-level=moderate
 

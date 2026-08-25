@@ -25,7 +25,8 @@
     "check:publish": "tsx scripts/prepublish-check.ts",
     "site:build": "tsx scripts/build-site.ts",
     "xpub": "tsx scripts/export-xpub.ts",
-    "standalone": "tsx scripts/build-standalone.ts"
+    "standalone": "tsx scripts/build-standalone.ts",
+    "check:vercel": "tsx scripts/check-vercel.ts"
   },
   "dependencies": {
     "@noble/curves": "^1.6.0",
