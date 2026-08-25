@@ -468,6 +468,18 @@ function viewSettings(network: Network): string {
       <button data-act="forget-wallet" style="border-color:var(--danger);color:var(--danger)">
         Remove wallet from this browser</button>
       <p class="hint">Removing only deletes the local copy. Your recovery phrase still controls the coins.</p>
+    </div>
+    <div class="card">
+      <p class="label">More</p>
+      <p style="margin-top:0;font-size:13.5px;color:var(--muted)">
+        <a href="/docs/" style="color:var(--teal)">Documentation</a> ·
+        <a href="/veyra-sign.html" style="color:var(--teal)">Offline signer</a> ·
+        <a href="/SHA256SUMS" style="color:var(--teal)">Verify this page</a>
+      </p>
+      <p class="hint">
+        Holding more than you would shrug at losing? Use the offline signer on a
+        machine with no network instead of this page.
+      </p>
     </div>`;
 }
 

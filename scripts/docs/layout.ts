@@ -137,6 +137,7 @@ export function renderPage(page: Page, all: readonly Page[]): string {
       <nav class="topnav">
         <a href="${link("api-reference")}">API reference</a>
         <a href="${link("changelog")}">Changelog</a>
+        <a href="/">Wallet</a>
         <a href="${REPO_URL}" rel="noopener noreferrer" target="_blank">GitHub</a>
         <button class="theme-toggle" aria-label="Toggle theme">◐</button>
       </nav>

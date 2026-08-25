@@ -1,6 +1,35 @@
 # Deployment configuration
 
-## Why `vercel.json` lives at the repository root and belongs to the WALLET
+## One deployment, not two
+
+`vercel.json` **always overrides dashboard settings**, and a repository can
+only have one. Two Vercel projects reading the same repository therefore read
+the same config and build the same site — configuring the second through its
+dashboard silently does nothing.
+
+We hit this in both directions: first both projects served the docs, then both
+served the wallet. Neither was a misconfiguration; it is simply what happens
+when two projects share one config file.
+
+**So there is one project, serving both:**
+
+```
+/                    the wallet
+/veyra-sign.html     the offline signer
+/veyra-watch.html    the watch-only page
+/SHA256SUMS          verification hashes
+/docs/               the documentation site
+```
+
+Built by `npm run build:public`, which assembles `public/` and then **verifies
+it** — that the root is the wallet rather than a redirect, that its CSP carries
+a script hash, and that every expected docs page exists. Both deployment
+failures we hit would have been caught by checking the output instead of
+trusting the config that produced it.
+
+Delete the second Vercel project; it has nothing to build.
+
+## Historical: why `vercel.json` belonged to the WALLET
 
 Vercel **always prefers `vercel.json` over dashboard settings**, and a
 repository can only have one. Both Vercel projects read the same file, so
