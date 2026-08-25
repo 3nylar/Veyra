@@ -891,6 +891,74 @@ rest lives somewhere the build cannot verify.
 
 ---
 
+## VEY-019 — The test for VEY-017 tested a stale artifact
+
+**Severity:** Medium (a green suite over a broken build) ·
+**Found:** increment 20, by a user running the suite after the VEY-017 fix
+
+### Failure
+```
+AssertionError: expected 'default-src 'none'; script-src 'self'; …'
+  to contain ''sha256-P2p3O/KEjp5wjHPragffqonihmg4…''
+```
+
+The build was fixed. The test failed anyway — and on a different machine it
+would have *passed* while the fix was absent.
+
+### Root cause
+Two defects in one test, both mine.
+
+**1. It rebuilt only when the output was missing.**
+
+```ts
+if (!existsSync(join(standalone, "veyra.html"))) {
+  execSync("npx tsx scripts/build-standalone.ts", …);
+}
+```
+
+So it tested whatever happened to be on disk. A `standalone/` left over from a
+previous run was checked against the *current* expectations — reporting on a
+build that no longer existed. Depending on which stale copy was present, the
+same commit could pass or fail.
+
+**2. The render assertions passed spuriously.**
+
+jsdom does not provide `TextEncoder`, so the bundle threw immediately on load.
+The assertion was `textContent.length > 100`, and the page's *static markup*
+already exceeded that — so a page whose script had crashed on line one still
+counted as "renders". The failure surfaced only in the one test that used an
+empty `<div id="root">` and therefore had nothing static to fall back on.
+
+### Fix
+- **Always rebuild.** The output directory is removed and regenerated before
+  every run. ~20 seconds, and the assertions now describe the code rather than
+  the filesystem.
+- **Supply the missing globals** (`TextEncoder`, `TextDecoder`, `crypto`) so
+  the bundle can actually run.
+- **Assert no script errors**, before asserting anything rendered. Errors
+  first, because a page can look populated from static markup while its script
+  has thrown — which is precisely how this passed.
+
+### Lesson
+Two, and the second is the sharper one.
+
+**A test whose result depends on leftover artifacts is not testing the code.**
+Caching build output in a test is an optimisation that trades correctness for
+seconds.
+
+**An assertion that a *page rendered* must exclude what was already there.**
+`length > 100` measured the static HTML, not the script's output. The fix is to
+start from an empty container, so everything asserted had to be produced by the
+code under test — the same principle as VEY-001's backstop, where a filter
+matching nothing passed a test that iterated it.
+
+This is now the fourth finding in the family *the check ran, passed, and
+verified nothing* (VEY-001, VEY-015, VEY-016, VEY-019). The recurring cause is
+never the assertion being wrong — it is the assertion being satisfiable without
+the property holding.
+
+---
+
 ## Findings that were NOT defects
 
 Recorded because their absence is itself informative.

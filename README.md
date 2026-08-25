@@ -271,7 +271,7 @@ README will not describe a challenge that has not been deployed.
 
 Documentation is written alongside the code it documents, never ahead of it.
 `docs/ATTACKS.md` is worth reading first if you want to judge the project's
-honesty: it records eighteen real defects, including two where a security guard
+honesty: it records nineteen real defects, including two where a security guard
 silently stopped guarding, and one where a test measured the machine rather
 than the code.
 

@@ -14,8 +14,6 @@ app/docs/*.html
 # and scrapers watch new public repos for exactly this.
 .env
 .env.*
-.env*
-.env.example*
 !.env.example
 *.mnemonic
 *.seed
@@ -41,5 +39,4 @@ Thumbs.db
 .idea
 *.swp
 
-gitignore.txt
 standalone
