@@ -178,6 +178,9 @@ let historyShown = ACTIVITY_PAGE;
 /** Live USD rate, or null. There is deliberately no remembered fallback. */
 let rate: FiatRate | null = null;
 
+/** When the last successful sync finished, for the "Updated 2m ago" label. */
+let lastSyncedAt: number | null = null;
+
 /**
  * The face the flip card should animate FROM on the next render, or null.
  *
@@ -224,6 +227,42 @@ function parseBtc(input: string): bigint {
 }
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/**
+ * Icons, as inline SVG.
+ *
+ * Inline rather than an icon font or sprite sheet for the same reason nothing
+ * else here is fetched: `img-src` is `'self' data:` and there is no network
+ * budget for decoration. An inline `<svg>` is markup, not a request, so it
+ * costs nothing at runtime and cannot fail to load.
+ *
+ * All of them are 24-grid, stroked with `currentColor`, so an icon inherits
+ * the meaning of whatever it sits inside — a danger button gets a danger icon
+ * without a second rule. `aria-hidden` throughout: every icon here sits beside
+ * a real text label, and announcing it twice helps nobody.
+ */
+const ICONS: Record<string, string> = {
+  wallet: `<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H18a2 2 0 0 1 2 2v1"/><path d="M3 7.5V17a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-2-2H5.5A2.5 2.5 0 0 1 3 7.5Z"/><circle cx="16.5" cy="14" r="1.1" fill="currentColor" stroke="none"/>`,
+  receive: `<path d="M12 4v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/>`,
+  send: `<path d="M12 20V8"/><path d="m7 13 5-5 5 5"/><path d="M5 4h14"/>`,
+  settings: `<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/>`,
+  sync: `<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>`,
+  copy: `<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>`,
+  plus: `<path d="M12 5v14"/><path d="M5 12h14"/>`,
+  external: `<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>`,
+  lock: `<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3"/>`,
+  eye: `<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>`,
+  eyeOff: `<path d="m3 3 18 18"/><path d="M10.6 6.2A9.9 9.9 0 0 1 12 6c6.4 0 10 6 10 6a17 17 0 0 1-3.4 4"/><path d="M6.2 7.4A16.6 16.6 0 0 0 2 12s3.6 7 10 7a9.7 9.7 0 0 0 4.2-.9"/><path d="M9.9 10.1a3 3 0 0 0 4.2 4.2"/>`,
+  inbox: `<path d="M4 13h4l1.5 3h5L16 13h4"/><path d="M5.4 5.6 3 13v5a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5l-2.4-7.4A2 2 0 0 0 16.7 4H7.3a2 2 0 0 0-1.9 1.6Z"/>`,
+  shield: `<path d="M12 3 5 6v5.5c0 4.3 3 8.3 7 9.5 4-1.2 7-5.2 7-9.5V6Z"/>`,
+  trash: `<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>`,
+  book: `<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5Z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H20v3H6.5A2.5 2.5 0 0 1 4 20.5Z"/>`,
+};
+
+const icon = (name: string, size = 18): string =>
+  `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none"
+     stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+     stroke-linejoin="round" aria-hidden="true" focusable="false">${ICONS[name] ?? ""}</svg>`;
 
 /**
  * Hide a figure when the balance is hidden.
@@ -385,17 +424,38 @@ function txRow(tx: ChainTransaction, detailed = false): string {
   </div>`;
 }
 
-/** The activity list body: failure, empty, or rows — three distinct states. */
+/**
+ * The activity list body: failure, empty, or rows — three distinct states.
+ *
+ * The empty state offers the next step rather than just reporting absence. A
+ * bordered box containing the words "No transactions yet" is the single
+ * biggest source of dead space in a new wallet, and it leaves the one person
+ * who most needs direction — someone who has just created a wallet — with
+ * nothing to do.
+ */
 function activityBody(rows: ChainTransaction[], detailed = false): string {
   if (historyUnavailable) {
     return `<div class="notice" data-t="warn">
       <strong>Transaction history could not be loaded.</strong>
       This is not the same as having none — the request to the chain source failed.
       ${historyError ? `<div class="hint">${esc(historyError)}</div>` : ""}
+      <div class="btn-row" style="margin-top:12px">
+        <button data-act="sync" ${busy ? "disabled" : ""}>${icon("sync", 16)}<span>Try again</span></button>
+      </div>
     </div>`;
   }
-  if (rows.length === 0) return `<p class="empty">No transactions yet.</p>`;
-  return rows.map((tx) => txRow(tx, detailed)).join("");
+
+  if (rows.length === 0) {
+    return `<div class="empty">
+      <span class="empty-icon">${icon("inbox", 26)}</span>
+      <p class="empty-title">Nothing here yet</p>
+      <p class="empty-body">Transactions appear here once this wallet has
+        received or sent bitcoin.</p>
+      <button class="primary" data-nav="receive">${icon("receive", 16)}<span>Show my address</span></button>
+    </div>`;
+  }
+
+  return `<div class="items">${rows.map((tx) => txRow(tx, detailed)).join("")}</div>`;
 }
 
 // ── Rendering ─────────────────────────────────────────────────────────────
@@ -410,37 +470,65 @@ function render() {
 
 function shell(network: Network | null, body: string, nav = false): string {
   const tabs = [
-    ["home", "Wallet"],
-    ["receive", "Receive"],
-    ["send", "Send"],
-    ["settings", "Settings"],
+    ["home", "Wallet", "wallet"],
+    ["receive", "Receive", "receive"],
+    ["send", "Send", "send"],
+    ["settings", "Settings", "settings"],
   ] as const;
 
   return `
     <div class="shell">
       <header class="topbar">
-        <h1 class="wordmark">Veyra</h1>
-        ${network ? `<span class="chip" data-mainnet="${network.isMainnet}">${network.name}</span>` : ""}
+        <div class="brand">
+          <h1 class="wordmark">Veyra</h1>
+          ${network ? `<span class="chip" data-mainnet="${network.isMainnet}"><i class="dot"></i>${esc(network.name)}</span>` : ""}
+        </div>
+        ${
+          // Sync is a global action, so it belongs in the chrome rather than
+          // buried at the bottom of the activity list where it used to live.
+          nav
+            ? `<div class="topbar-actions">
+                 <span class="synced">${syncedLabel()}</span>
+                 <button class="icon-btn" data-act="sync" ${busy ? "disabled" : ""}
+                         aria-label="Sync with the chain" title="Sync with the chain">
+                   <span class="${busy ? "spin" : ""}">${icon("sync", 17)}</span>
+                 </button>
+               </div>`
+            : ""
+        }
       </header>
-      <main>${body}</main>
-    </div>
-    ${
-      nav
-        ? `<nav class="nav">
+
+      ${
+        nav
+          ? `<nav class="nav">
         ${tabs
           .map(
-            ([id, label]) =>
+            ([id, label, glyph]) =>
               // The activity screen is reached from the Wallet tab, so that tab
               // stays lit while it is open. Otherwise no tab is current and the
               // user has no indication of where they are.
               `<button data-nav="${id}" aria-current="${
                 id === "home" ? screen === "home" || screen === "activity" : screen === id
-              }">${label}</button>`,
+              }">${icon(glyph, 19)}<span>${label}</span></button>`,
           )
           .join("")}
       </nav>`
-        : ""
-    }`;
+          : ""
+      }
+
+      <main>${body}</main>
+    </div>`;
+}
+
+/** "Updated 2 minutes ago" — or nothing at all before the first sync. */
+function syncedLabel(): string {
+  if (busy) return "Syncing…";
+  if (lastSyncedAt === null) return "";
+  const seconds = Math.floor((Date.now() - lastSyncedAt) / 1000);
+  if (seconds < 45) return "Updated just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `Updated ${minutes}m ago`;
+  return `Updated ${Math.round(minutes / 60)}h ago`;
 }
 
 // ── Onboarding ────────────────────────────────────────────────────────────
@@ -670,20 +758,16 @@ function viewHome(network: Network): string {
   const usd = fiat(balance.spendable);
   const recent = history.slice(0, HOME_ACTIVITY_ROWS);
 
-  return `
-    ${
-      network.isMainnet
-        ? `<div class="notice" data-t="danger"><strong>Mainnet.</strong> These are real
-      bitcoin and transactions cannot be reversed.</div>`
-        : ""
-    }
-
-    <button class="card flip" id="balanceCard" data-act="toggle-balance"
+  const left = `
+    <button class="hero flip" id="balanceCard" data-act="toggle-balance"
             data-shown="${shown}" aria-pressed="${shown}"
             aria-label="Show or hide the balance">
       <span class="flip-inner">
         <span class="flip-face" data-face="balance">
-          <span class="label">Spendable balance</span>
+          <span class="hero-top">
+            <span class="label">Spendable balance</span>
+            <span class="flip-hint">${icon("eyeOff", 15)}<span>Hide</span></span>
+          </span>
           <span class="balance">${fmtBtc(balance.spendable)}<small>BTC</small></span>
           ${usd ? `<span class="fiat">${usd}</span>` : ""}
           <span class="sats">${balance.spendable.toLocaleString("en-US")} sat</span>
@@ -696,45 +780,62 @@ function viewHome(network: Network): string {
             }
             <span class="bk"><span>Coins</span><span>${balance.utxoCount}</span></span>
           </span>
-          <span class="flip-hint">Tap to hide</span>
         </span>
 
         <span class="flip-face" data-face="cover">
-          <span class="label">${esc(prefs.walletName || "Veyra wallet")}</span>
+          <span class="hero-top">
+            <span class="label">${esc(prefs.walletName || "Veyra wallet")}</span>
+            <span class="flip-hint">${icon("eye", 15)}<span>Reveal</span></span>
+          </span>
           <span class="balance">••••••••<small>BTC</small></span>
           <span class="sats">${esc(network.name)} · ${esc(wallet!.account.node.identifier)}</span>
-          <span class="flip-hint">Tap to reveal</span>
+          <span class="breakdown">
+            <span class="bk"><span>Balance</span><span>Hidden</span></span>
+          </span>
         </span>
       </span>
     </button>
 
     <div class="btn-row">
-      <button class="primary" data-nav="send" ${balance.spendable === 0n ? "disabled" : ""}>Send</button>
-      <button data-nav="receive">Receive</button>
+      <button class="primary" data-nav="send" ${balance.spendable === 0n ? "disabled" : ""}>
+        ${icon("send")}<span>Send</span></button>
+      <button data-nav="receive">${icon("receive")}<span>Receive</span></button>
     </div>
 
     ${
-      usd && rate && isStale(rate)
-        ? `<p class="hint">USD via ${esc(rate.source)} · ${esc(fmtRateAge(rate))}</p>`
-        : usd && rate
-          ? `<p class="hint">USD via ${esc(rate.source)} · ${esc(fmtRateAge(rate))}</p>`
-          : network.isMainnet && prefs.fiat
-            ? `<p class="hint">USD price unavailable — showing bitcoin amounts only.</p>`
-            : ""
-    }
-
-    <div class="card">
-      <p class="label">Activity</p>
-      ${activityBody(recent)}
-      ${
-        history.length > HOME_ACTIVITY_ROWS
-          ? `<button class="ghost wide" data-act="all-activity">All activity (${history.length})</button>`
+      rate
+        ? `<p class="hint source-line">USD via ${esc(rate.source)} · ${esc(fmtRateAge(rate))}${
+            isStale(rate) ? " · may be out of date" : ""
+          }</p>`
+        : network.isMainnet && prefs.fiat
+          ? `<p class="hint source-line">USD price unavailable — showing bitcoin amounts only.</p>`
           : ""
-      }
-      <div class="btn-row" style="margin-top:16px">
-        <button data-act="sync" ${busy ? "disabled" : ""}>${busy ? "Syncing…" : "Sync"}</button>
+    }
+    <p class="status" id="syncStatus"></p>`;
+
+  const right = `
+    <section class="panel">
+      <div class="panel-head">
+        <h2 class="label">Activity</h2>
+        ${
+          history.length > HOME_ACTIVITY_ROWS
+            ? `<button class="link-btn" data-act="all-activity">View all (${history.length})</button>`
+            : ""
+        }
       </div>
-      <p class="status" id="syncStatus"></p>
+      ${activityBody(recent)}
+    </section>`;
+
+  return `
+    ${
+      network.isMainnet
+        ? `<div class="notice" data-t="danger"><strong>Mainnet.</strong> These are real
+      bitcoin and transactions cannot be reversed.</div>`
+        : ""
+    }
+    <div class="home-grid">
+      <div class="col">${left}</div>
+      <div class="col">${right}</div>
     </div>`;
 }
 
@@ -742,9 +843,12 @@ function viewActivity(): string {
   const rows = history.slice(0, historyShown);
 
   return `
-    <button class="ghost" data-nav="home">← Wallet</button>
-    <div class="card">
-      <p class="label">All activity</p>
+    <button class="ghost back" data-nav="home">← Wallet</button>
+    <section class="panel">
+      <div class="panel-head">
+        <h2 class="label">All activity</h2>
+        ${history.length > 0 ? `<span class="count">${history.length}</span>` : ""}
+      </div>
       ${activityBody(rows, true)}
       ${
         history.length > historyShown
@@ -757,7 +861,7 @@ function viewActivity(): string {
         unaffected either way — this is a limit on what the server will tell us,
         not on what the wallet controls.
       </p>
-    </div>`;
+    </section>`;
 }
 
 /**
@@ -808,19 +912,19 @@ function viewReceive(network: Network): string {
           : `This is a <strong>${esc(network.name)}</strong> address. Coins on this network have no value.`
       }
     </div>
-    <div class="card">
-      <p class="label">Receive</p>
-      <div class="qr" id="qrBox"></div>
+    <section class="panel receive-panel">
+      <div class="panel-head"><h2 class="label">Receive</h2></div>
+      <div class="qr" id="qrBox"><span class="qr-wait">Generating…</span></div>
       <div class="addr">${addr(derived.address)}</div>
       <p class="hint">The underlined last six characters are a checksum. They
         catch any four or fewer mistyped characters, so a typo cannot quietly
         send bitcoin somewhere else.</p>
       <div class="btn-row" style="margin-top:16px">
-        <button class="primary" data-act="copy-addr">Copy address</button>
-        <button data-act="next-addr">New address</button>
+        <button class="primary" data-act="copy-addr">${icon("copy", 16)}<span>Copy address</span></button>
+        <button data-act="next-addr">${icon("plus", 16)}<span>New address</span></button>
       </div>
       <p class="status" id="receiveStatus">${esc(derived.path)}</p>
-    </div>`;
+    </section>`;
 }
 
 function viewSend(): string {
@@ -828,8 +932,8 @@ function viewSend(): string {
     const amountUsd = fiat(prepared.amount);
     return `
       <div class="steps"><span class="done">Compose</span><span>/</span><span class="on">Review</span></div>
-      <div class="card">
-        <p class="label">To</p>
+      <section class="panel">
+        <div class="panel-head"><h2 class="label">To</h2></div>
         <div class="addr">${addr(prepared.recipient)}</div>
         <div style="height:16px"></div>
         <div class="row"><span class="k">Amount</span><span class="v">${fmtBtc(prepared.amount)} BTC${
@@ -839,8 +943,8 @@ function viewSend(): string {
         <div class="row" data-total><span class="k">Total</span><span class="v">${fmtBtc(prepared.total)} BTC</span></div>
         <div class="row"><span class="k">Remaining</span><span class="v" data-tone="muted">${fmtBtc(prepared.remainingBalance)} BTC</span></div>
       </div>
-      <div class="card">
-        <p class="label">What will be broadcast</p>
+      <section class="panel">
+        <div class="panel-head"><h2 class="label">What will be broadcast</h2></div>
         <div class="row"><span class="k">Transaction id</span><span class="v">${esc(prepared.txid)}</span></div>
         <div class="row"><span class="k">Inputs</span><span class="v">${prepared.inputs.length}</span></div>
         <div class="row"><span class="k">Size</span><span class="v">${prepared.vsize} vB at ${prepared.feeRate.toFixed(1)} sat/vB</span></div>
@@ -857,8 +961,8 @@ function viewSend(): string {
 
   return `
     <div class="steps"><span class="on">Compose</span><span>/</span><span>Review</span></div>
-    <div class="card">
-      <p class="label">Send bitcoin</p>
+    <section class="panel">
+      <div class="panel-head"><h2 class="label">Send bitcoin</h2></div>
       <label class="f"><span>Recipient address</span>
         <input id="to" spellcheck="false" autocomplete="off" placeholder="bc1q…" />
         <span class="hint">Paste it. Typing by hand risks an error.</span></label>
@@ -873,93 +977,122 @@ function viewSend(): string {
     </div>`;
 }
 
+/**
+ * Settings.
+ *
+ * Previously six identically-weighted cards stacked in a column, which read as
+ * a wall rather than as choices. Grouped here into three panels plus a
+ * visually distinct danger area and a plain footer, so the eye can find the
+ * one thing it came for. A bordered box around every group means none of them
+ * stands out.
+ */
 function viewSettings(network: Network): string {
   return `
-    <div class="card">
-      <p class="label">Display</p>
-      <label class="f"><span>Wallet name</span>
-        <input id="walletName" maxlength="24" spellcheck="false" value="${esc(prefs.walletName)}" placeholder="Veyra wallet" />
-        <span class="hint">Shown on the hidden face of the balance card, so several
-          wallets are tellable apart without revealing any of them.</span></label>
-      <label class="check"><input type="checkbox" id="balanceHidden" ${prefs.balanceHidden ? "checked" : ""} />
-        <span>Hide the balance by default</span></label>
-      <label class="check"><input type="checkbox" id="fiat" ${prefs.fiat ? "checked" : ""} />
-        <span>Show a USD value</span></label>
-      <p class="hint">Signet, testnet and regtest coins have no market value, so no
-        price is shown or requested there.</p>
-      <button class="primary" data-act="save-display">Save</button>
-      <p class="status" id="displayStatus"></p>
-    </div>
-    <div class="card">
-      <p class="label">Network</p>
-      <label class="f"><span>Chain</span>
-        <select id="network">
-          ${["signet", "testnet", "mainnet", "regtest"]
-            .map(
-              (n) => `<option value="${n}" ${n === prefs.network ? "selected" : ""}>${n}</option>`,
-            )
-            .join("")}
-        </select></label>
-      <label class="f"><span>Chain source (Esplora)</span>
-        <input id="esplora" spellcheck="false" value="${esc(prefs.esplora)}" />
-        <span class="hint">Must be one of the origins allowed by this page's
-          security policy. Adding others requires rebuilding it.</span></label>
-      <button class="primary" data-act="save-network">Save and reload wallet</button>
-      <p class="status" id="settingsStatus"></p>
-    </div>
-    <div class="card">
-      <p class="label">Security</p>
-      <div class="row"><span class="k">Wallet type</span><span class="v">Self-custodial (BIP-84)</span></div>
-      <div class="row"><span class="k">Keys held by</span><span class="v">This browser only</span></div>
-      <div class="row"><span class="k">Stored as</span><span class="v">scrypt + AES-256-GCM</span></div>
-      <div class="row"><span class="k">Path</span><span class="v">${esc(wallet!.account.path)}</span></div>
-      <div class="row"><span class="k">Fingerprint</span><span class="v">${esc(wallet!.account.node.identifier)}</span></div>
-      <div class="row"><span class="k">Auto-lock</span><span class="v">10 minutes</span></div>
-      <div class="row"><span class="k">Recoverable by us</span><span class="v" data-tone="danger">No</span></div>
-      <p class="hint">
-        Nobody can restore this wallet from anything but your recovery phrase.
-        There is no account and no support desk that can help.
-      </p>
-    </div>
-    <div class="card">
-      <p class="label">Privacy</p>
-      <p class="hint" style="margin-top:0">
+    <div class="settings-grid">
+      <section class="panel">
+        <div class="panel-head"><h2 class="label">Display</h2></div>
+
+        <label class="f"><span>Wallet name</span>
+          <input id="walletName" maxlength="24" spellcheck="false" value="${esc(prefs.walletName)}" placeholder="Veyra wallet" />
+          <span class="hint">Shown on the hidden face of the balance card, so several
+            wallets are tellable apart without revealing any of them.</span></label>
+
+        <label class="check"><input type="checkbox" id="balanceHidden" ${prefs.balanceHidden ? "checked" : ""} />
+          <span><strong>Hide the balance by default</strong>
+            <em>Every amount on screen is masked until you flip the card.</em></span></label>
+
+        <label class="check"><input type="checkbox" id="fiat" ${prefs.fiat ? "checked" : ""} />
+          <span><strong>Show a USD value</strong>
+            <em>Mainnet only. Test coins have no market value, so none is shown or requested.</em></span></label>
+
+        <button class="primary wide" data-act="save-display">Save display settings</button>
+        <p class="status" id="displayStatus"></p>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2 class="label">Network</h2></div>
+
+        <label class="f"><span>Chain</span>
+          <select id="network">
+            ${["signet", "testnet", "mainnet", "regtest"]
+              .map(
+                (n) => `<option value="${n}" ${n === prefs.network ? "selected" : ""}>${n}</option>`,
+              )
+              .join("")}
+          </select></label>
+
+        <label class="f"><span>Chain source (Esplora)</span>
+          <input id="esplora" spellcheck="false" value="${esc(prefs.esplora)}" />
+          <span class="hint">Must be one of the origins allowed by this page's
+            security policy. Adding others requires rebuilding it.</span></label>
+
+        <div class="notice" data-t="warn">
+          Changing the network re-derives an entirely different wallet from the same
+          phrase — a different coin type is a different key tree. The wallet locks
+          and you will need to unlock again.
+        </div>
+
+        <button class="primary wide" data-act="save-network">Save and reload wallet</button>
+        <p class="status" id="settingsStatus"></p>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2 class="label">${icon("shield", 15)}<span>Security</span></h2></div>
+
+        <div class="row"><span class="k">Wallet type</span><span class="v">Self-custodial (BIP-84)</span></div>
+        <div class="row"><span class="k">Keys held by</span><span class="v">This browser only</span></div>
+        <div class="row"><span class="k">Stored as</span><span class="v">scrypt + AES-256-GCM</span></div>
+        <div class="row"><span class="k">Path</span><span class="v">${esc(wallet!.account.path)}</span></div>
+        <div class="row"><span class="k">Fingerprint</span><span class="v">${esc(wallet!.account.node.identifier)}</span></div>
+        <div class="row"><span class="k">Auto-lock</span><span class="v">10 minutes</span></div>
+        <div class="row"><span class="k">Recoverable by us</span><span class="v" data-tone="danger">No</span></div>
+
+        <p class="hint">Nobody can restore this wallet from anything but your recovery
+          phrase. There is no account and no support desk that can help.</p>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2 class="label">Who can see what</h2></div>
+
+        <p class="hint" style="margin-top:0">
+          ${
+            chain?.isThirdParty
+              ? `<strong>${esc(new URL(prefs.esplora).host)}</strong> can see every address in this
+                 wallet, that they belong to one wallet, your balance, your full history, and your
+                 IP address. Running your own Esplora removes this entirely.`
+              : "You are using a local chain source, so nothing about this wallet leaves your machine."
+          }
+        </p>
         ${
-          chain?.isThirdParty
-            ? `<strong>${esc(new URL(prefs.esplora).host)}</strong> can see every address in this wallet,
-             that they belong to one wallet, your balance, your full history, and your IP address.
-             Running your own Esplora removes this entirely.`
-            : "You are using a local chain source, so nothing about this wallet leaves your machine."
+          network.isMainnet && prefs.fiat
+            ? `<p class="hint">The USD price comes from <strong>mempool.space</strong>, a second
+                 server. It learns your IP address and that this page is open — not your addresses,
+                 your balance, or your history. Turn off <em>Show a USD value</em> to contact only
+                 your chain source.</p>`
+            : ""
         }
-      </p>
-      ${
-        network.isMainnet && prefs.fiat
-          ? `<p class="hint">The USD price comes from <strong>mempool.space</strong>, a
-               second server. It learns your IP address and that this page is open —
-               not your addresses, your balance, or your history. Turn off
-               <em>Show a USD value</em> above to contact only your chain source.</p>`
-          : ""
-      }
+      </section>
     </div>
-    <div class="card">
-      <p class="label">Danger</p>
-      <button data-act="lock">Lock now</button>
-      <div style="height:8px"></div>
-      <button class="danger" data-act="forget-wallet">Remove wallet from this browser</button>
-      <p class="hint">Removing only deletes the local copy. Your recovery phrase still controls the coins.</p>
-    </div>
-    <div class="card">
-      <p class="label">More</p>
-      <p class="hint" style="margin-top:0">
-        <a href="/docs/">Documentation</a> ·
-        <a href="/veyra-sign.html">Offline signer</a> ·
-        <a href="/SHA256SUMS">Verify this page</a>
-      </p>
-      <p class="hint">
-        Holding more than you would shrug at losing? Use the offline signer on a
-        machine with no network instead of this page.
-      </p>
-    </div>`;
+
+    <section class="danger-zone">
+      <div class="panel-head"><h2 class="label" data-tone="danger">Danger</h2></div>
+      <div class="btn-row">
+        <button data-act="lock">${icon("lock", 16)}<span>Lock now</span></button>
+        <button class="danger" data-act="forget-wallet">${icon("trash", 16)}<span>Remove wallet</span></button>
+      </div>
+      <p class="hint">Removing only deletes the local copy. Your recovery phrase still
+        controls the coins.</p>
+    </section>
+
+    <footer class="foot">
+      <a href="/docs/">${icon("book", 15)}<span>Documentation</span></a>
+      <a href="/veyra-sign.html">${icon("lock", 15)}<span>Offline signer</span></a>
+      <a href="/SHA256SUMS">${icon("shield", 15)}<span>Verify this page</span></a>
+    </footer>
+    <p class="hint foot-note">
+      Holding more than you would shrug at losing? Use the offline signer on a
+      machine with no network instead of this page.
+    </p>`;
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────
@@ -999,6 +1132,7 @@ async function refresh() {
 
     await refreshRate();
 
+    lastSyncedAt = Date.now();
     busy = false;
     render();
     setStatus("syncStatus", "Up to date.", "ok");

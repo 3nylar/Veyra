@@ -148,8 +148,17 @@ describe("honest states", () => {
   it("says there are no transactions, rather than that something failed", async () => {
     await click('[data-nav="home"]');
 
-    expect(text()).toContain("No transactions yet");
+    expect(text()).toContain("Nothing here yet");
     expect(text(), "an empty history is not a failed one").not.toContain("could not be loaded");
+  });
+
+  it("offers a way forward from the empty state instead of just reporting it", async () => {
+    // A bordered box containing four words was the biggest patch of dead space
+    // in a new wallet, and it left the person who most needs direction —
+    // someone who has just created a wallet — with nothing to do.
+    const cta = document.querySelector<HTMLElement>('.empty [data-nav="receive"]');
+    expect(cta, "the empty activity state should offer the receive screen").not.toBeNull();
+    expect(cta!.textContent).toContain("Show my address");
   });
 
   it("shows no USD anywhere on signet", () => {
