@@ -170,7 +170,7 @@ regtest integration tests that require a running Bitcoin Core node and are
     m/84'/1'/0'/0/1  tb1qfqwvqyw6np7706pjlp4eqk9eejetqf72a36tm3
 ```
 
-**Live documentation:** <https://veyra-apidocs.vercel.app>
+**Live documentation:** <https://veyra-app-prod.vercel.app/docs>
 
 ### ✅ Consensus verification
 
