@@ -8,15 +8,12 @@
 # files on Windows for months while Linux CI stayed green. A single-OS
 # pipeline structurally cannot catch a bug that only exists on another OS.
 #
-<<<<<<< HEAD
 # `e2e` runs the shipped browser pages in real Chromium/Firefox/WebKit via
 # Playwright. VEY-020 broke 100% of browser syncs while 919 vitest tests
 # stayed green, because the defect was a `fetch` receiver-binding rule that
 # neither Node's undici nor jsdom enforce. A Node-only suite cannot verify
 # browser behaviour; only a real browser can.
 #
-=======
->>>>>>> 4a82a0f9fd43c3a236a9a06b6dc7bbccb5001c3f
 # Note what is NOT here: a deploy step. Nothing in this repository is fit to
 # deploy against real funds, and a pipeline that could do so would be an
 # invitation to a mistake.

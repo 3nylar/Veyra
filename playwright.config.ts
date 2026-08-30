@@ -49,8 +49,14 @@ export default defineConfig({
   // not a mock server — the point is testing what actually ships.
   webServer: {
     command: "npm run app",
-    url: "http://127.0.0.1:5173",
+    url: "http://127.0.0.1:5173/watch.html",
     reuseExistingServer: !process.env.CI,
-    timeout: 30_000,
+    timeout: 60_000,
+    // Visible by default: a silent timeout here gives no signal about
+    // whether the server ever started, crashed, or is just slow. Piping
+    // stdout/stderr means the real Vite output (ready message, errors)
+    // shows up in the same terminal instead of vanishing.
+    stdout: "pipe",
+    stderr: "pipe",
   },
 });
