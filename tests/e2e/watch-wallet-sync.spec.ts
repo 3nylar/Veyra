@@ -25,10 +25,25 @@
  */
 import { test, expect } from "@playwright/test";
 
-// A well-formed testnet account xpub (BIP-84, depth 3). Not a secret — xpubs
-// derive addresses only, never spending keys.
+// A real testnet account xpub for m/84'/1'/0', derived with actual secp256k1
+// math from the fixed seed 000102030405060708090a0b0c0d0e0f (a well-known,
+// non-secret BIP-32 test seed — not a wallet anyone holds funds in). Not a
+// secret either way — xpubs derive addresses only, never spending keys.
+//
+// A previous version of this constant was hand-typed rather than derived,
+// and had two separate defects, both of which the app was correctly
+// rejecting rather than silently accepting:
+//   1. Its Base58Check checksum didn't match its payload (a plain typo).
+//   2. Its version-byte prefix was "vpub" (SLIP-132), which this codebase
+//      deliberately never emits or accepts — see the comment on
+//      EXTENDED_KEY_VERSIONS in core/derivation/bip32.ts. Swapping in the
+//      standard testnet "tpub" version bytes alone wasn't enough either:
+//      the key data those old bytes wrapped had an invalid compressed-pubkey
+//      prefix (0x96, must be 0x02/0x03), meaning the string was never a real
+//      key to begin with. This constant is now derived from scratch rather
+//      than patched.
 const TEST_XPUB =
-  "vpub5Y6cjg78GGuNM7uCryFHXW4H2eEZfPzXeCFcdmftMUqmwjgvsdTFqCbGqL5EihJDDdmpJZ8vHy2WgVMhFy7mnFjnwd97wnr9NTFriMSY7iw";
+  "tpubDDNRbZGvdA33cgpY5uy2mmphT7sK4uciRjcQScSd64S5KRyZDxHcPuzs24or84Hywugb2JbEEt2jWH8fduiN9cmZzkSj8sSSx6txXkhXyZs";
 
 test.describe("watch-only wallet — sync (browser)", () => {
   test("loading a wallet renders a balance without a network error", async ({ page }) => {
@@ -36,6 +51,20 @@ test.describe("watch-only wallet — sync (browser)", () => {
     // A route that never fires would mean the request never left the page —
     // that failure mode is asserted for separately below.
     let sawUtxoRequest = false;
+
+    // core/wallet/watchOnly.ts scans addresses ONE AT A TIME, sequentially,
+    // stopping after GAP_LIMIT (20) consecutive addresses with no history —
+    // that's how a restore scan ever terminates instead of walking to
+    // MAX_INDEX. A route that reports every address as funded, as an earlier
+    // version of this mock did, defeats that termination condition: the scan
+    // never sees 20 unused addresses in a row, so it runs to MAX_INDEX (1000)
+    // on both the receive and change chains — thousands of sequential
+    // round-trips, well past this test's timeout, surfacing as a wallet
+    // stuck on "Scanning the chain…" forever. A real chain has exactly this
+    // shape too: one or a few funded addresses, everything else unused.
+    // Only the FIRST address queried is reported as funded here, matching a
+    // wallet with a single received payment at index 0.
+    let addressStatCalls = 0;
 
     await page.route("**/address/*/utxo", async (route) => {
       sawUtxoRequest = true;
@@ -50,11 +79,17 @@ test.describe("watch-only wallet — sync (browser)", () => {
 
     await page.route("**/address/*", async (route) => {
       if (route.request().url().includes("/utxo")) return route.fallback();
+      addressStatCalls++;
+      const funded = addressStatCalls === 1;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          chain_stats: { funded_txo_sum: 150_000, spent_txo_sum: 0, tx_count: 1 },
+          chain_stats: {
+            funded_txo_sum: funded ? 150_000 : 0,
+            spent_txo_sum: 0,
+            tx_count: funded ? 1 : 0,
+          },
           mempool_stats: { funded_txo_sum: 0, spent_txo_sum: 0, tx_count: 0 },
         }),
       });

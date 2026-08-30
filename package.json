@@ -22,6 +22,7 @@
     "test:api": "vitest run api/tests/",
     "app": "vite --config app/vite.config.ts",
     "app:build": "vite build --config app/vite.config.ts",
+    "app:preview": "vite preview --config app/vite.config.ts --port 5173 --strictPort",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "docs:build": "tsx scripts/build-docs.ts",

@@ -45,10 +45,22 @@ export default defineConfig({
     { name: "webkit", use: { ...devices["Desktop Safari"] } },
   ],
 
-  // Boots the real dev server the app is served from (app/vite.config.ts),
-  // not a mock server — the point is testing what actually ships.
+  // Builds and serves the actual production bundle (app/vite.config.ts),
+  // not a mock server and not the Vite dev server — the point is testing
+  // what actually ships.
+  //
+  // This used to run `npm run app` (the dev server) directly. That server
+  // injects a Vite HMR client into every page, which opens its own
+  // WebSocket back to the dev server for live-reload. watch.html's CSP
+  // intentionally omits `ws:` from connect-src (a page that talks to
+  // Esplora should not also be trusted to open arbitrary sockets), so that
+  // HMR socket tripped the same "content security policy" console-error
+  // listener the CSP test uses to watch for real violations — a false
+  // positive with nothing to do with the Esplora origin the test actually
+  // cares about. A production preview build has no HMR client, so it
+  // doesn't manufacture a violation the shipped page would never produce.
   webServer: {
-    command: "npm run app",
+    command: "npm run app:build && npm run app:preview",
     url: "http://127.0.0.1:5173/watch.html",
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
