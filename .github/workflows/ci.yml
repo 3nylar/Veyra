@@ -3,6 +3,17 @@
 # A failed security test MUST fail the build. There is no `continue-on-error`
 # on any job below, and no step is marked advisory.
 #
+# `verify` and `guards` run across ubuntu/windows/macos. This is not
+# defensive boilerplate: VEY-001 was a guard that silently checked zero
+# files on Windows for months while Linux CI stayed green. A single-OS
+# pipeline structurally cannot catch a bug that only exists on another OS.
+#
+# `e2e` runs the shipped browser pages in real Chromium/Firefox/WebKit via
+# Playwright. VEY-020 broke 100% of browser syncs while 919 vitest tests
+# stayed green, because the defect was a `fetch` receiver-binding rule that
+# neither Node's undici nor jsdom enforce. A Node-only suite cannot verify
+# browser behaviour; only a real browser can.
+#
 # Note what is NOT here: a deploy step. Nothing in this repository is fit to
 # deploy against real funds, and a pipeline that could do so would be an
 # invitation to a mistake.
@@ -21,7 +32,11 @@ permissions:
 jobs:
   verify:
     name: Typecheck, test, audit
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
 
     steps:
@@ -62,7 +77,11 @@ jobs:
       - name: Full suite
         run: npm test
 
+      # Deployment config (Vercel-specific paths/env) is only meaningful on
+      # the platform that will actually run it. Skip on non-Linux runners
+      # rather than asserting something irrelevant to the target platform.
       - name: Validate deployment config
+        if: matrix.os == 'ubuntu-latest'
         run: npm run check:vercel
 
       - name: Dependency audit
@@ -118,7 +137,11 @@ jobs:
 
   guards:
     name: Structural security guards
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
 
     steps:
@@ -132,10 +155,47 @@ jobs:
       # These two guards cannot be expressed as behavioural tests: a
       # weak-entropy wallet works perfectly, and a timing-unsafe
       # implementation produces correct output. Only a source scan catches
-      # them, and CI running them on Linux complements a developer running
-      # them on Windows -- see docs/ATTACKS.md VEY-001.
+      # them, and running this matrix across OSes is what would have caught
+      # VEY-001 in CI instead of relying on a developer's own machine --
+      # see docs/ATTACKS.md VEY-001.
       - name: No predictable randomness in core/
         run: npx vitest run tests/cryptography/entropy.test.ts
 
       - name: Reference implementations are isolated
         run: npx vitest run tests/cryptography/reference-implementations.test.ts
+
+  e2e:
+    name: Browser e2e (real engine)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # VEY-020 was a `fetch` receiver-binding rule that only a real
+        # browser's WebIDL enforces -- Node's undici and jsdom cannot see it.
+        # The axis that matters here is ENGINE, not OS: Chromium and WebKit
+        # brand-check the receiver, Firefox's behaviour differs, and a bug
+        # that only breaks on one engine needs that engine actually running.
+        browser: [chromium, firefox, webkit]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      - name: Install Playwright browser (${{ matrix.browser }})
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Run e2e suite against ${{ matrix.browser }}
+        run: npx playwright test --project=${{ matrix.browser }}
+
+      - name: Upload trace on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-trace-${{ matrix.browser }}
+          path: test-results/
+          retention-days: 7

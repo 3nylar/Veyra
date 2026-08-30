@@ -22,6 +22,8 @@
     "test:api": "vitest run api/tests/",
     "app": "vite --config app/vite.config.ts",
     "app:build": "vite build --config app/vite.config.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "docs:build": "tsx scripts/build-docs.ts",
     "check:publish": "tsx scripts/prepublish-check.ts",
     "site:build": "tsx scripts/build-site.ts",
@@ -37,6 +39,7 @@
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.48.0",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^22.0.0",
     "@types/qrcode": "^1.5.6",
