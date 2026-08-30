@@ -3,6 +3,11 @@
 # A failed security test MUST fail the build. There is no `continue-on-error`
 # on any job below, and no step is marked advisory.
 #
+# `verify` and `guards` run across ubuntu/windows/macos. This is not
+# defensive boilerplate: VEY-001 was a guard that silently checked zero
+# files on Windows for months while Linux CI stayed green. A single-OS
+# pipeline structurally cannot catch a bug that only exists on another OS.
+#
 # Note what is NOT here: a deploy step. Nothing in this repository is fit to
 # deploy against real funds, and a pipeline that could do so would be an
 # invitation to a mistake.
@@ -21,7 +26,11 @@ permissions:
 jobs:
   verify:
     name: Typecheck, test, audit
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
 
     steps:
@@ -62,7 +71,11 @@ jobs:
       - name: Full suite
         run: npm test
 
+      # Deployment config (Vercel-specific paths/env) is only meaningful on
+      # the platform that will actually run it. Skip on non-Linux runners
+      # rather than asserting something irrelevant to the target platform.
       - name: Validate deployment config
+        if: matrix.os == 'ubuntu-latest'
         run: npm run check:vercel
 
       - name: Dependency audit
@@ -118,7 +131,11 @@ jobs:
 
   guards:
     name: Structural security guards
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
 
     steps:
@@ -132,8 +149,9 @@ jobs:
       # These two guards cannot be expressed as behavioural tests: a
       # weak-entropy wallet works perfectly, and a timing-unsafe
       # implementation produces correct output. Only a source scan catches
-      # them, and CI running them on Linux complements a developer running
-      # them on Windows -- see docs/ATTACKS.md VEY-001.
+      # them, and running this matrix across OSes is what would have caught
+      # VEY-001 in CI instead of relying on a developer's own machine --
+      # see docs/ATTACKS.md VEY-001.
       - name: No predictable randomness in core/
         run: npx vitest run tests/cryptography/entropy.test.ts
 
