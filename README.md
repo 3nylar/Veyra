@@ -259,10 +259,10 @@ most useful artefact — under §31 it becomes the permanent regression test.
 > section is describing a commitment rather than a live target.
 >
 > ```
-> Challenge address:  (published at funding)
+> Challenge address:  bc1qaudn23qmefuf56fnymk5zvregdtqxhy2q0vqy6
 > Challenge keystore: (published at funding — challenge/keystore.json)
 > Opened:             —
-> Status:             not yet funded
+> Status:             funded
 > ```
 
 ### The bet

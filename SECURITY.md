@@ -8,7 +8,7 @@ can send.
 
 ## Current status
 
-**The security challenge is not yet funded.** Its terms are final and published
+**The security challenge is funded.** Its terms are final and published
 in [the README](README.md#the-security-challenge); the address and encrypted
 keystore appear there at funding, and the challenge opens the moment they do.
 Until then there is nothing to attack for reward — only a codebase to improve.
